@@ -273,15 +273,24 @@ struct triangle
 		}
 	}
 };
+
+//
+// 
+struct boundingbox
+{
+	//AABB boundingbox,b[i][0]——第i维坐标最小值，b[i][1],第i维坐标最大值
+	double b[3][2];
+};
 //用于单个模型的核心数据结构。
 struct geometry
 {
 	vector<hvec> vlist;
 	vector<hvec> vnlist;
 	vector<triangle> flist;
+
 	void assign(const geometryfromobj& b)
 	{
-		vlist.assign(b.vlist.begin(),b.vlist.end());
+		vlist.assign(b.vlist.begin(), b.vlist.end());
 		vnlist.assign(b.vnlist.begin(), b.vnlist.end());
 		flist.assign(b.flist.begin(), b.flist.end());
 	}
@@ -290,6 +299,26 @@ struct geometry
 		printf((funcname + "已完成\n").c_str());
 		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
 	}
+	/*
+	boundingbox apply_transform_and_get_bounding_box(hmat t)
+	{
+		boundingbox a;
+		memset(mm, 0, sizeof(mm));
+		for (int i = 0; i < vlist.size(); i++)
+		{
+			t.
+			vlist[i];
+			for (int j = 0; j < 3; j++)
+			{
+				double tt = vlist[i].xyzw[j];
+				if (tt > mm[0][j])
+					mm[0][j] = tt;
+				if (tt < mm[1][j])
+					mm[1][j] = tt;
+			}
+		}
+		return
+	}*/
 };
 
 struct hmat
@@ -339,9 +368,18 @@ struct hmat
 
 //场景造型，随机在世界坐标系中复制生成单个模型
 struct scene {
-	//指向单个模型的引用
-	const geometry& element;
-
+	//指向基础模型的引用
+	const geometry& base;
+	
+	vector<hvec> vlist;
+	vector<hvec> vnlist;
+	vector<triangle> flist;
+	//使用仿射变换来复制模型
+	void make_duplicates(int n)
+	{
+		//计算bounding 
+		pow(n, 1.0 / 3);
+	}
 };
 
 
@@ -365,6 +403,26 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	soccerobj.triangle_mesh();
 	soccer.assign(soccerobj);
 	soccer.print("");
+
+	double mm[2][3];
+	memset(mm, 0, sizeof(mm));
+	for (int i = 0; i < soccer.vlist.size(); i++)
+	{
+		for (int j = 0; j < 3; j++)
+		{
+			double tt = soccer.vlist[i].xyzw[j];
+			if (tt > mm[0][j])
+				mm[0][j] = tt;
+			if (tt < mm[1][j])
+				mm[1][j] = tt;
+		}
+	}
+	for (int i = 0; i < 2; i++)
+	{
+		for (int j = 0; j < 3; j++)
+			printf(" %f", mm[i][j]);
+		printf("\n");
+	}
 	system("pause");
 	return 0;
 }
