@@ -40,7 +40,7 @@ struct vec
 };
 
 //vfromobj,来自obj文件的顶点v
-struct vfromobj
+/*struct vfromobj
 {
 	vec v;
 	vfromobj(double x = 0, double y = 0, double z = 0)
@@ -58,7 +58,7 @@ struct vnfromobj
 		vn = vec(x, y, z);
 	}
 };
-
+*/
 //index pair,用于辅助存储facet中描述polygon顶点编号index的数据结构;
 //facetfromobj,来自obj文件的facet，可能是polygon
 
@@ -80,8 +80,8 @@ struct facetfromobj
 
 struct geometryfromobj
 {
-	vector<vfromobj> vlist;
-	vector<vnfromobj> vnlist;
+	vector<vec> vlist;
+	vector<vec> vnlist;
 	vector<facetfromobj> flist;
 
 	void read_from_file(string filename = "..\\soccerball.obj")
@@ -111,7 +111,7 @@ struct geometryfromobj
 					double x, y, z;
 					if(sscanf_s(a.c_str(), "%lf%lf%lf", &x,&y,&z)!=3)
 						break;
-					vfromobj v(x,y,z);
+					vec v(x,y,z);
 					vlist.push_back(v);
 				}
 				else if (b == "vn")
@@ -119,7 +119,7 @@ struct geometryfromobj
 					double x, y, z;
 					if(sscanf_s(a.c_str(), "%lf%lf%lf", &x, &y, &z)!=3)
 						break;
-					vnfromobj vn(x, y, z);
+					vec vn(x, y, z);
 					vnlist.push_back(vn);
 				}
 				else if (b == "f")
@@ -188,7 +188,7 @@ struct geometryfromobj
 		}
 		print("triangle_mesh");
 	}
-	//测试
+	//打印输出当前面数，点数
 	void print(string funcname)
 	{
 		printf((funcname + "已完成\n").c_str());
@@ -214,18 +214,140 @@ struct geometryfromobj
 //齐次坐标
 struct hvec
 {
-	vec xyz;
-	double w;
+	double xyzw[4];
+	double eps = 1e-6;
+	hvec(double a = 0, double b = 0, double c = 0,double d = 1)
+	{
+		xyzw[0] = a; xyzw[1] = b; xyzw[2] = c, xyzw[3] = d;
+	}
+	//从三维vec向量解析过来，默认w=1
+	hvec(const vec& b)
+	{
+		xyzw[0] = b.x; xyzw[1] = b.y; xyzw[2] = b.z;
+		xyzw[3] = 1;
+	}
+	//拷贝构造
+	hvec(const hvec& b)
+	{
+		memcpy(xyzw, b.xyzw, sizeof(xyzw));
+	}
+	//向量相等当且仅当回到三维后相等
+	bool operator == (const hvec& b)
+	{
+		for (int i = 0; i < 4; i++)
+		{
+			if (fabs(xyzw[i] / xyzw[3] - b.xyzw[i] / b.xyzw[3]) >= eps)
+				return false;
+		}
+		return true;
+	}
+	hvec operator +(const hvec& b)
+	{
+		return hvec(xyzw[0] + b.xyzw[0], xyzw[1] + b.xyzw[1], xyzw[2] + b.xyzw[2], xyzw[3] + b.xyzw[3]);
+	}
+	hvec operator -(const hvec& b)
+	{
+		return hvec(xyzw[0] - b.xyzw[0], xyzw[1] - b.xyzw[1], xyzw[2] - b.xyzw[2], xyzw[3] - b.xyzw[3]);
+	}
+	//向量数乘c
+	hvec mulc(double c)
+	{
+		return hvec(xyzw[0] * c, xyzw[1] * c, xyzw[2] * c, xyzw[3] * c);
+	}
 };
 
+//三角形面片
+struct triangle
+{
+	//三个端点坐标
+	indpair ends[3];
+	//int color
 
+	//从facetfromobj拷贝
+	triangle(const facetfromobj& b)
+	{
+		if (b.pointlist.size() >= 3)
+		{
+			for (int i = 0; i < 3; i++)
+				ends[i] = b.pointlist[i];
+		}
+	}
+};
+//用于单个模型的核心数据结构。
 struct geometry
 {
-	//void triangle_mesh_from()
+	vector<hvec> vlist;
+	vector<hvec> vnlist;
+	vector<triangle> flist;
+	void assign(const geometryfromobj& b)
+	{
+		vlist.assign(b.vlist.begin(),b.vlist.end());
+		vnlist.assign(b.vnlist.begin(), b.vnlist.end());
+		flist.assign(b.flist.begin(), b.flist.end());
+	}
+	void print(string funcname)
+	{
+		printf((funcname + "已完成\n").c_str());
+		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+	}
+};
+
+struct hmat
+{
+	//4*4齐次坐标系的变换。
+	double A[4][4];
+	hmat()
+	{
+		memset(A, 0, sizeof(A));
+	}
+	hmat(const hmat& b)
+	{
+		memcpy(A,b.A,sizeof(A));
+	}
+	//矩阵乘向量
+	hvec operator*(const hvec& x)
+	{
+		hvec b(0, 0, 0, 0);
+		for (int i = 0; i < 4; i++)
+		{
+			for (int k = 0; k < 4; k++)
+			{
+				b.xyzw[i] += A[i][k] * x.xyzw[k];
+			}
+		}
+		return b;
+	}
+	//矩阵乘矩阵
+	hmat operator*(const hmat& b)
+	{
+		const double(*B)[4] = b.A;
+		hmat c;
+		double(*C)[4] = c.A;
+		for (int k = 0; k < 4; k++)
+		{
+			for (int i = 0; i < 4; i++)
+			{
+				for (int j = 0; j < 4; j++)
+				{
+					C[i][j] += A[i][k] * B[k][j];
+				}
+			}
+		}
+		return c;
+	}
+};
+
+//场景造型，随机在世界坐标系中复制生成单个模型
+struct scene {
+	//指向单个模型的引用
+	const geometry& element;
+
 };
 
 
-geometryfromobj soccer;
+
+geometryfromobj soccerobj;
+geometry soccer;
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	FILE* fp;
@@ -239,8 +361,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	Sleep(5000);			// 延时 5000 毫秒
 	closegraph();			// 关闭图形窗口
 	*/
-	soccer.read_from_file();
-	soccer.triangle_mesh();
+	soccerobj.read_from_file();
+	soccerobj.triangle_mesh();
+	soccer.assign(soccerobj);
+	soccer.print("");
 	system("pause");
 	return 0;
 }
