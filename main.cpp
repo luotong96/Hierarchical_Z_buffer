@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 #include <sstream>
+#include <cassert>
 using namespace std;
 //定义全局的向量，方便后续坐标变换的计算
 struct vec
@@ -74,9 +75,10 @@ struct facetfromobj
 {
 	//可能不止3个顶点
 	vector<indpair> pointlist;
+	//int colorind;
 };
 
-struct geometry
+struct geometryfromobj
 {
 	vector<vfromobj> vlist;
 	vector<vnfromobj> vnlist;
@@ -142,58 +144,88 @@ struct geometry
 						//读取成功
 						f.pointlist.push_back(indpair(x, 0, z));
 					}
-
-					/*int tp = f.pointlist.size();
-					if (tp == 5)
-					{
-						printf("linn = %d\n", linn);
-					}
-					if (mp.find(tp) == mp.end())
-					{
-
-						printf("size = %d\n",tp);
-						mp[tp] = 0;
-					}
-					mp[tp]++;
-					*/
+					//facet面片存储
 					flist.push_back(f);
 				}
 				
 			}
-			//printf("facet = %d %d %d\n", mp[3], mp[4], mp[5]);
 			fs.close();
 		}
-		printf("###%d %d %d########\n", vlist.size(),vnlist.size(),flist.size());
+		print("read_from_file");
+	}
+	//多边形mesh转为triangle mesh
+	void triangle_mesh()
+	{
+		int n = flist.size();
+		for (int i = 0; i < n; i++)
+		{
+			//用新vector来装每个facet新产生的额外三角形面片
+			vector<facetfromobj> nfacetlist;
+			
+			//当前facet的端点列表
+			vector<indpair>& plst = flist[i].pointlist;
+			int pcnt = plst.size();
+			if (pcnt > 3)
+			{
+				//除第一个三角形以外，新增三角形面片
+				for (int j = 2; j + 1 < pcnt; j++)
+				{
+					facetfromobj ntriangle;
+					ntriangle.pointlist.push_back(plst[0]);
+					ntriangle.pointlist.push_back(plst[j]);
+					ntriangle.pointlist.push_back(plst[j + 1]);
+					nfacetlist.push_back(ntriangle);
+				}
+				//只保留第一个三角形的三个点
+				plst.resize(3);
+			}
+
+			//新产生的三角形放回原flist中
+			for (int j = 0; j < nfacetlist.size(); j++)
+			{
+				flist.push_back(nfacetlist[j]);
+			}
+		}
+		print("triangle_mesh");
+	}
+	//测试
+	void print(string funcname)
+	{
+		printf((funcname + "已完成\n").c_str());
+		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+		map<int, int>mp;
+		printf("总面片数量=%d\n", flist.size());
+		for (int i = 0; i < flist.size(); i++)
+		{
+			int cnt = flist[i].pointlist.size();
+			if (mp.find(cnt) == mp.end())
+			{
+				mp[cnt] = 0;
+			}
+			mp[cnt]++;
+		}
+		for (map<int, int>::iterator a = mp.begin(); a != mp.end(); a++)
+		{
+			printf("%d点面片数为%d\n", a->first, a->second);
+		}
 	}
 };
 
-
-/*void read_obj()
+//齐次坐标
+struct hvec
 {
+	vec xyz;
+	double w;
+};
 
-	map<string, bool> mp;
-	mp.clear();
-	fstream fs;
-	//fs.open("..\\t3qqxibgic-CenterCitySciFi\\Center city Sci-Fi\\Center City Sci-Fi.obj", std::fstream::in);
-	fs.open("..\\soccerball.obj", std::fstream::in);
-	while (!fs.eof())
-	{
-		string a;
-		getline(fs, a);
-		string b;
-		int pos = a.find_first_of(' ');
-		b.assign(a.substr(0, pos));
-		if (b != "g")
-			continue;
-		if (mp.find(a) == mp.end())
-		{
-			cout << a << endl;
-			mp[a] = true;
-		}
-	}
-	fs.close();
-}*/
-geometry soccer;
+
+struct geometry
+{
+	//void triangle_mesh_from()
+};
+
+
+geometryfromobj soccer;
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	FILE* fp;
@@ -207,9 +239,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	Sleep(5000);			// 延时 5000 毫秒
 	closegraph();			// 关闭图形窗口
 	*/
-	//read_obj();
 	soccer.read_from_file();
-
+	soccer.triangle_mesh();
 	system("pause");
 	return 0;
 }
