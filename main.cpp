@@ -6,7 +6,6 @@
 #include <map>
 #include <vector>
 #include <sstream>
-#include <cassert>
 #include <random>
 #include <numbers>
 
@@ -14,35 +13,60 @@ using namespace std;
 //定义全局的向量，方便后续坐标变换的计算
 struct vec
 {
-	double x, y, z;
+	double xyz[3];
 	double eps = 1e-6;
 	vec(double a = 0,double b = 0,double c = 0)
 	{
-		x = a; y = b; z = c;
+		xyz[0] = a; xyz[1] = b; xyz[2] = c;
 	}
 	vec(double a[])
 	{
-		x = a[0]; y = a[1]; z = a[2];
+		xyz[0] = a[0]; xyz[1] = a[1]; xyz[2] = a[2];
 	}
+	//默认拷贝构造函数
+
 	//向量相等当且仅当各坐标相等
 	bool operator == (const vec& b)
 	{
-		if (fabs(x - b.x) < eps && fabs(y - b.y) < eps && fabs(z - b.z) < eps)
-			return true;
-		return false;
+		for (int i = 0; i < 3; i++)
+		{
+			if (fabs(xyz[i] - b.xyz[i]) > eps)
+				return false;
+		}
+		return true;
 	}
+
 	vec operator +(const vec& b)
 	{
-		return vec(x + b.x,y + b.y,z + b.z);
+		return vec(xyz[0] + b.xyz[0],xyz[1] + b.xyz[1],xyz[2] + b.xyz[2]);
 	}
+
 	vec operator -(const vec& b)
 	{
-		return vec(x - b.x, y - b.y, z - b.z);
+		return vec(xyz[0] - b.xyz[0], xyz[1] - b.xyz[1], xyz[2] - b.xyz[2]);
 	}
+
 	//向量数乘c
-	vec mulc(double c)
+	vec operator *(double c)
 	{
-		return vec(x * c, y * c, z * c);
+		return vec(xyz[0] * c, xyz[1] * c, xyz[2] * c);
+	}
+
+	//向量长度，2范数
+	double norm2()
+	{
+		return sqrt(xyz[0]*xyz[0]+xyz[1]*xyz[1]+xyz[2]*xyz[2]);
+	}
+
+	//向量叉积，直接用3阶行列式推出来即可。
+	vec cross_product(vec& b)
+	{
+		return vec(xyz[1] * b.xyz[2] - xyz[2] * b.xyz[1], xyz[2] * b.xyz[0] - xyz[0] * b.xyz[2], xyz[0] * b.xyz[1] - xyz[1] * b.xyz[0]);
+	}
+
+	static vec get_zero_vector()
+	{
+		return vec(0, 0, 0);
 	}
 };
 
@@ -231,7 +255,10 @@ struct hvec
 	//从三维vec向量解析过来，默认w=1
 	hvec(const vec& b)
 	{
-		xyzw[0] = b.x; xyzw[1] = b.y; xyzw[2] = b.z;
+		for (int i = 0; i < 3; i++)
+		{
+			xyzw[i] = b.xyz[i];
+		}
 		xyzw[3] = 1;
 	}
 	//拷贝构造
@@ -311,7 +338,8 @@ struct hmat
 	{
 		hmat T;
 		double t[][4] = { {1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1} };
-		t[0][3] = b.x; t[1][3] = b.y; t[2][3] = b.z;
+		for (int i = 0; i < 3; i++)
+			t[i][3] = b.xyz[i];
 		memcpy(T.A, t, sizeof(T.A));
 		return T;
 	}
@@ -326,6 +354,7 @@ struct hmat
 		memcpy(T.A, t, sizeof(T.A));
 		return T;
 	}
+	//绕y轴逆时针旋转theta角度,单位为弧度制。
 	static hmat get_y_axis_rot_hmat(double theta)
 	{
 		hmat T;
@@ -335,6 +364,28 @@ struct hmat
 		t[2][0] = -t[0][2];
 		memcpy(T.A, t, sizeof(T.A));
 		return T;
+	}
+	//构造单位矩阵
+	//static hmat I;
+	//static bool constructed;
+	static hmat get_unity()
+	{
+		double I[][4] = { {1,0,0,0},{0,1,0,0 },{0,0,1,0},{0,0,0,1} };
+		hmat T;
+		memcpy(T.A, I, sizeof(T.A));
+		return T;
+	}
+
+	void print()
+	{
+		for (int i = 0; i < 4; i++)
+		{
+			for (int j = 0; j < 4; j++)
+			{
+				printf("%f ", A[i][j]);
+			}
+			printf("\n");
+		}
 	}
 };
 
@@ -465,13 +516,24 @@ struct geometry
 
 
 
-//场景造型，随机在世界坐标系中复制生成单个模型
+//完整场景
 struct scene {
 
+	//存储场景中所有顶点的齐次坐标
 	vector<hvec> vlist;
+	//存储场景中所有顶点的法向坐标
 	vector<hvec> vnlist;
+	//存储场景中所有三角面片的顶点编号
 	vector<triangle> flist;
-	//模型变换，使用仿射变换来复制基础模型,base->指向基础模型的引用
+	
+	void print(string funcname)
+	{
+		printf((funcname + " 已完成!\n").c_str());
+		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+	}
+
+	//场景造型，随机在世界坐标系中复制生成单个模型
+	//模型变换，使用仿射变换来复制基础模型,base->指向基础模型的引用,n->复制n次
 	void generate_from_base(const geometry& base,int n)
 	{
 		boundingbox bbox = boundingbox::get_bounding_box(base.vlist);
@@ -543,15 +605,68 @@ struct scene {
 		print("generate_from_base");
 	}
 
-	void print(string funcname)
-	{
-		printf((funcname + " 已完成!\n").c_str());
-		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
-	}
-
 };
 
 
+struct pipeline
+{
+	//存储当前场景中所有顶点的齐次坐标
+	vector<hvec> vlist;
+	//存储当前场景中所有顶点的法向坐标
+	vector<hvec> vnlist;
+	//存储当前场景中所有三角面片的顶点编号
+	vector<triangle> flist;
+
+	//Transform存储取景变换，投影变换,视窗变换等后续所有变换的复合变换。
+	hmat transform;
+	
+	pipeline()
+	{
+		//初始化为单位阵
+		transform = hmat::get_unity();
+	}
+
+	//取景变换，将场景变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
+	void viewtransform(vec& viewpoint, vec& n, vec& up)
+	{
+		if (n == vec::get_zero_vector() || up == vec::get_zero_vector())
+		{
+			printf("视点方向和up方向不能为0\n");
+			return;
+		}
+		n = n * (1.0 / n.norm2());
+		vec v = n.cross_product(up);
+		if (v == vec::get_zero_vector())
+		{
+			printf("视线方向与up方向不能在一条直线上\n");
+			return;
+		}
+		v = v * (v.norm2());
+		vec u = v.cross_product(n);
+
+		//构造坐标变换矩阵
+		hmat T;
+
+		for (int j = 0; j < 3; j++)
+			T.A[0][j] = u.xyz[j];
+		for (int j = 0; j < 3; j++)
+			T.A[1][j] = v.xyz[j];
+		for (int j = 0; j < 3; j++)
+			T.A[2][j] = n.xyz[j];
+		T.A[3][3] = 1;
+
+		for (int i = 0; i < 3; i++)
+			T.A[i][3] = -viewpoint.xyz[i];
+
+		//与现有变换复合
+		transform = T * transform;
+
+		printf("已完成viewtransform,transform当前为\n");
+		transform.print();
+	}
+
+
+};
 
 geometryfromobj soccerobj;
 geometry soccer;
@@ -578,6 +693,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	//soccer.print("");
 
 	soccerfield.generate_from_base(soccer,1000);
+	vec oo(0, 0, 0);
+	vec nn(1, 1, 1);
+	vec uu(1, 2, 1);
+	//soccerfield.viewtransform(oo,nn,uu);
+
 	//soccerfield.print("");
 	
 	system("pause");
