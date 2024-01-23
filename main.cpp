@@ -7,6 +7,9 @@
 #include <vector>
 #include <sstream>
 #include <cassert>
+#include <random>
+#include <numbers>
+
 using namespace std;
 //定义全局的向量，方便后续坐标变换的计算
 struct vec
@@ -16,6 +19,10 @@ struct vec
 	vec(double a = 0,double b = 0,double c = 0)
 	{
 		x = a; y = b; z = c;
+	}
+	vec(double a[])
+	{
+		x = a[0]; y = a[1]; z = a[2];
 	}
 	//向量相等当且仅当各坐标相等
 	bool operator == (const vec& b)
@@ -70,6 +77,7 @@ struct indpair
 	{
 		vi = a, vti = b, vni = c;
 	}
+	//默认拷贝构造函数
 };
 struct facetfromobj
 {
@@ -255,72 +263,6 @@ struct hvec
 		return hvec(xyzw[0] * c, xyzw[1] * c, xyzw[2] * c, xyzw[3] * c);
 	}
 };
-
-//三角形面片
-struct triangle
-{
-	//三个端点坐标
-	indpair ends[3];
-	//int color
-
-	//从facetfromobj拷贝
-	triangle(const facetfromobj& b)
-	{
-		if (b.pointlist.size() >= 3)
-		{
-			for (int i = 0; i < 3; i++)
-				ends[i] = b.pointlist[i];
-		}
-	}
-};
-
-//
-// 
-struct boundingbox
-{
-	//AABB boundingbox,b[i][0]——第i维坐标最小值，b[i][1],第i维坐标最大值
-	double b[3][2];
-};
-//用于单个模型的核心数据结构。
-struct geometry
-{
-	vector<hvec> vlist;
-	vector<hvec> vnlist;
-	vector<triangle> flist;
-
-	void assign(const geometryfromobj& b)
-	{
-		vlist.assign(b.vlist.begin(), b.vlist.end());
-		vnlist.assign(b.vnlist.begin(), b.vnlist.end());
-		flist.assign(b.flist.begin(), b.flist.end());
-	}
-	void print(string funcname)
-	{
-		printf((funcname + "已完成\n").c_str());
-		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
-	}
-	/*
-	boundingbox apply_transform_and_get_bounding_box(hmat t)
-	{
-		boundingbox a;
-		memset(mm, 0, sizeof(mm));
-		for (int i = 0; i < vlist.size(); i++)
-		{
-			t.
-			vlist[i];
-			for (int j = 0; j < 3; j++)
-			{
-				double tt = vlist[i].xyzw[j];
-				if (tt > mm[0][j])
-					mm[0][j] = tt;
-				if (tt < mm[1][j])
-					mm[1][j] = tt;
-			}
-		}
-		return
-	}*/
-};
-
 struct hmat
 {
 	//4*4齐次坐标系的变换。
@@ -331,7 +273,7 @@ struct hmat
 	}
 	hmat(const hmat& b)
 	{
-		memcpy(A,b.A,sizeof(A));
+		memcpy(A, b.A, sizeof(A));
 	}
 	//矩阵乘向量
 	hvec operator*(const hvec& x)
@@ -364,28 +306,258 @@ struct hmat
 		}
 		return c;
 	}
+	//平移坐标变换的矩阵
+	static hmat get_translation_hmat(const vec& b)
+	{
+		hmat T;
+		double t[][4] = { {1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1} };
+		t[0][3] = b.x; t[1][3] = b.y; t[2][3] = b.z;
+		memcpy(T.A, t, sizeof(T.A));
+		return T;
+	}
+	//绕x轴逆时针旋转theta角度,单位为弧度制。
+	static hmat get_x_axis_rot_hmat(double theta)
+	{
+		hmat T;
+		double t[][4] = { {1,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,1} };
+		t[1][1] = t[2][2] = cos(theta);
+		t[2][1] = sin(theta);
+		t[1][2] = -t[2][1];
+		memcpy(T.A, t, sizeof(T.A));
+		return T;
+	}
+	static hmat get_y_axis_rot_hmat(double theta)
+	{
+		hmat T;
+		double t[][4] = { {0,0,0,0},{0,1,0,0},{0,0,0,0},{0,0,0,1} };
+		t[0][0] = t[2][2] = cos(theta);
+		t[0][2] = sin(theta);
+		t[2][0] = -t[0][2];
+		memcpy(T.A, t, sizeof(T.A));
+		return T;
+	}
 };
 
-//场景造型，随机在世界坐标系中复制生成单个模型
-struct scene {
-	//指向基础模型的引用
-	const geometry& base;
-	
+//三角形面片
+struct triangle
+{
+	//三个端点坐标
+	indpair ends[3];
+	//int color
+
+	//从facetfromobj拷贝
+	triangle(const facetfromobj& b)
+	{
+		if (b.pointlist.size() >= 3)
+		{
+			for (int i = 0; i < 3; i++)
+				ends[i] = b.pointlist[i];
+		}
+	}
+	//拷贝构造函数
+	triangle(const triangle & b )
+	{
+		memcpy(ends,b.ends,sizeof(ends));
+	}
+};
+
+//
+// 
+struct boundingbox
+{
+	//AABB boundingbox,b[i][0]——第i维坐标最小值，b[i][1],第i维坐标最大值
+	double b[3][2];
+	boundingbox()
+	{
+		memset(b, 0, sizeof(b));
+	}
+	boundingbox(boundingbox& c)
+	{
+		memcpy(b, c.b, sizeof(b));
+	}
+
+	//静态的计算任意三角形面片顶点集合的boundingbox
+	static boundingbox get_bounding_box(const vector<hvec>& vlist)
+	{
+		boundingbox a;
+		double(*mm)[2] = a.b;
+		memset(mm, 0, sizeof(mm));
+		for (int i = 0; i < vlist.size(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				//取xyz坐标时要注意除以w
+				double tt = vlist[i].xyzw[j] / vlist[i].xyzw[3];
+				if (tt < mm[j][0])
+					mm[j][0] = tt;
+				if (tt > mm[j][1])
+					mm[j][1] = tt;
+			}
+		}
+		return a;
+	}
+};
+
+
+
+//用于单个模型的核心数据结构。
+struct geometry
+{
 	vector<hvec> vlist;
 	vector<hvec> vnlist;
 	vector<triangle> flist;
-	//使用仿射变换来复制模型
-	void make_duplicates(int n)
+
+	//将geometryfromobj转化为geometry
+	void assign(const geometryfromobj& b)
 	{
-		//计算bounding 
-		pow(n, 1.0 / 3);
+		vlist.assign(b.vlist.begin(), b.vlist.end());
+		vnlist.assign(b.vnlist.begin(), b.vnlist.end());
+		flist.assign(b.flist.begin(), b.flist.end());
+		print("assign");
 	}
+	void print(string funcname)
+	{
+		printf((funcname + "已完成\n").c_str());
+		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+	}
+	//将模型居中于坐标原点
+	void centered()
+	{
+		//计算当前模型的包围盒
+		boundingbox bb = boundingbox::get_bounding_box(vlist);
+		//得到包围盒的中点
+		vec vs((bb.b[0][0] - bb.b[0][1])/2, (bb.b[1][0] - bb.b[1][1]) / 2, (bb.b[2][0] - bb.b[2][1]) / 2);
+		//得到仿射变换矩阵
+		hmat T = hmat::get_translation_hmat(vs);
+
+		//开始变换
+		for (int i = 0; i < vlist.size(); i++)
+		{
+			vlist[i] = T * vlist[i];
+		}
+		for (int i = 0; i < vnlist.size(); i++)
+		{
+			vnlist[i] = T * vnlist[i];
+		}
+		print("centered");
+	}
+	/*
+	boundingbox apply_transform_and_get_bounding_box(hmat t)
+	{
+		boundingbox a;
+		memset(mm, 0, sizeof(mm));
+		for (int i = 0; i < vlist.size(); i++)
+		{
+			t.
+			vlist[i];
+			for (int j = 0; j < 3; j++)
+			{
+				double tt = vlist[i].xyzw[j];
+				if (tt > mm[0][j])
+					mm[0][j] = tt;
+				if (tt < mm[1][j])
+					mm[1][j] = tt;
+			}
+		}
+		return
+	}*/
+};
+
+
+
+//场景造型，随机在世界坐标系中复制生成单个模型
+struct scene {
+
+	vector<hvec> vlist;
+	vector<hvec> vnlist;
+	vector<triangle> flist;
+	//模型变换，使用仿射变换来复制基础模型,base->指向基础模型的引用
+	void generate_from_base(const geometry& base,int n)
+	{
+		boundingbox bbox = boundingbox::get_bounding_box(base.vlist);
+
+
+		double range[3];
+		//计算xyz坐标的随机范围range 
+		for (int i = 0; i < 3; i++)
+		{
+			range[i] = 2 * pow(n, 1.0 / 3)*bbox.b[i][1];
+		}
+
+		std::default_random_engine generator;
+		std::default_random_engine generator2;
+
+		//旋转角度theta的分布
+		std::uniform_real_distribution<double> thetapdf(0, 2 * std::numbers::pi);
+		
+		//coordinate（坐标）的分布
+		std::uniform_real_distribution<double> coordpdf(-1.0, 1.0);
+	
+		for (int i = 0; i < n; i++)
+		{
+			double xtheta = thetapdf(generator);
+			double ytheta = thetapdf(generator);
+			//旋转矩阵
+			hmat R = hmat::get_y_axis_rot_hmat(ytheta) * hmat::get_x_axis_rot_hmat(xtheta);
+			
+			double coord[3];
+			for (int j = 0; j < 3; j++)
+			{
+				coord[j] = coordpdf(generator2)*range[j];
+			}
+			//先旋转，再平移。
+			hmat T = hmat::get_translation_hmat(vec(coord)) * R;
+
+			//对每个模型duplicate开始变换,顶点v需要做T变换，法向vn需要做R变换，纹理vt(如果有)不需要做变换。
+			//triangle中顶点的编号从1开始。因此每个新的duplicate的顶点编号需要加上场景中已有的顶点数量。
+			//pvcnt->present v number目前场景scene中的v的数量;pvncnt->present vn 的数量
+			int pvcnt = vlist.size();
+			int pvncnt = vnlist.size();
+
+			for (int j = 0; j < base.vlist.size(); j++)
+			{
+				hvec nv = T * base.vlist[j];
+				vlist.push_back(nv);
+			}
+
+			for (int j = 0; j < base.vnlist.size(); j++)
+			{
+				hvec nv = R * base.vnlist[j];
+				vnlist.push_back(nv);
+			}
+
+			for (int j = 0; j < base.flist.size(); j++)
+			{
+				//k < 3,因为每个triangle面片都只有三个顶点。
+				triangle ntriangle = base.flist[j];
+				for (int k = 0; k < 3; k++)
+				{
+					//新的顶点编号
+					ntriangle.ends[k].vi += pvcnt;
+					ntriangle.ends[k].vni += pvncnt;
+				}
+				//新的三角形面片汇总到本场景中
+				flist.push_back(ntriangle);
+			}
+		}
+		print("generate_from_base");
+	}
+
+	void print(string funcname)
+	{
+		printf((funcname + " 已完成!\n").c_str());
+		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+	}
+
 };
 
 
 
 geometryfromobj soccerobj;
 geometry soccer;
+
+scene soccerfield;
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	FILE* fp;
@@ -402,27 +574,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	soccerobj.read_from_file();
 	soccerobj.triangle_mesh();
 	soccer.assign(soccerobj);
-	soccer.print("");
+	soccer.centered();
+	//soccer.print("");
 
-	double mm[2][3];
-	memset(mm, 0, sizeof(mm));
-	for (int i = 0; i < soccer.vlist.size(); i++)
-	{
-		for (int j = 0; j < 3; j++)
-		{
-			double tt = soccer.vlist[i].xyzw[j];
-			if (tt > mm[0][j])
-				mm[0][j] = tt;
-			if (tt < mm[1][j])
-				mm[1][j] = tt;
-		}
-	}
-	for (int i = 0; i < 2; i++)
-	{
-		for (int j = 0; j < 3; j++)
-			printf(" %f", mm[i][j]);
-		printf("\n");
-	}
+	soccerfield.generate_from_base(soccer,1000);
+	//soccerfield.print("");
+	
 	system("pause");
 	return 0;
 }
