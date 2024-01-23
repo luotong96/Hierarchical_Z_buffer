@@ -47,19 +47,19 @@ struct vec
 	}
 
 	//向量数乘c
-	vec operator *(double c)
+	vec operator *(double c)const
 	{
 		return vec(xyz[0] * c, xyz[1] * c, xyz[2] * c);
 	}
 
 	//向量长度，2范数
-	double norm2()
+	double norm2()const
 	{
 		return sqrt(xyz[0]*xyz[0]+xyz[1]*xyz[1]+xyz[2]*xyz[2]);
 	}
 
 	//向量叉积，直接用3阶行列式推出来即可。
-	vec cross_product(vec& b)
+	vec cross_product(const vec& b)const
 	{
 		return vec(xyz[1] * b.xyz[2] - xyz[2] * b.xyz[1], xyz[2] * b.xyz[0] - xyz[0] * b.xyz[2], xyz[0] * b.xyz[1] - xyz[1] * b.xyz[0]);
 	}
@@ -289,6 +289,20 @@ struct hvec
 	{
 		return hvec(xyzw[0] * c, xyzw[1] * c, xyzw[2] * c, xyzw[3] * c);
 	}
+	//令w=1
+	void normalize()
+	{
+		if (fabs(xyzw[3]) < eps)
+		{
+			printf("w为0，无法归一化\n");
+			return;
+		}
+		for (int i = 0; i < 3; i++)
+		{
+			xyzw[i] = xyzw[i] / xyzw[3];
+		}
+		xyzw[3] = 1;
+	}
 };
 struct hmat
 {
@@ -303,7 +317,7 @@ struct hmat
 		memcpy(A, b.A, sizeof(A));
 	}
 	//矩阵乘向量
-	hvec operator*(const hvec& x)
+	hvec operator*(const hvec& x)const
 	{
 		hvec b(0, 0, 0, 0);
 		for (int i = 0; i < 4; i++)
@@ -316,7 +330,7 @@ struct hmat
 		return b;
 	}
 	//矩阵乘矩阵
-	hmat operator*(const hmat& b)
+	hmat operator*(const hmat& b)const
 	{
 		const double(*B)[4] = b.A;
 		hmat c;
@@ -427,7 +441,7 @@ struct boundingbox
 		memcpy(b, c.b, sizeof(b));
 	}
 
-	//静态的计算任意三角形面片顶点集合的boundingbox
+	//静态的计算任意顶点集合的boundingbox
 	static boundingbox get_bounding_box(const vector<hvec>& vlist)
 	{
 		boundingbox a;
@@ -446,6 +460,11 @@ struct boundingbox
 			}
 		}
 		return a;
+	}
+
+	bool is_intersec_with_triangle(const triangle &tri, const vector<hvec>& vlist)const
+	{
+		return false;
 	}
 };
 
@@ -618,16 +637,27 @@ struct pipeline
 	vector<triangle> flist;
 
 	//Transform存储取景变换，投影变换,视窗变换等后续所有变换的复合变换。
-	hmat transform;
 	
-	pipeline()
+	//cuvn视点坐标向量
+	hvec c, u, v, n;
+
+	//投影平面到视点的距离，应当为正数。
+	double d;
+
+	//视窗u,v坐标最大值，都为正数。
+	double umax;
+	double vmax;
+
+	void print_transform(string funcname)
 	{
-		//初始化为单位阵
-		transform = hmat::get_unity();
+		printf(("已完成"+funcname).c_str());
+		//printf(" transform当前为：\n");
+		//transform.print();
+
 	}
 
-	//取景变换，将场景变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
-	void viewtransform(vec& viewpoint, vec& n, vec& up)
+	//取景变换，世界坐标变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
+	void viewtransform(const vec& viewpoint, vec n, const vec& up,hmat& transform)
 	{
 		if (n == vec::get_zero_vector() || up == vec::get_zero_vector())
 		{
@@ -641,8 +671,13 @@ struct pipeline
 			printf("视线方向与up方向不能在一条直线上\n");
 			return;
 		}
-		v = v * (v.norm2());
+		v = v * (1.0/v.norm2());
 		vec u = v.cross_product(n);
+
+		this->c = viewpoint;
+		this->u = u;
+		this->v = v;
+		this->n = n;
 
 		//构造坐标变换矩阵
 		hmat T;
@@ -661,10 +696,115 @@ struct pipeline
 		//与现有变换复合
 		transform = T * transform;
 
-		printf("已完成viewtransform,transform当前为\n");
-		transform.print();
+		print_transform("viewtransform");
+	}
+	
+	//真正通过矩阵计算应用变换transform到场景中，并将结果填充到vlist，vnlist，flist
+	//transfrom直接应用至v,transform去掉仿射偏移后应用至vn。注意透视投影会影响法向量的方向。
+	//分块矩阵可以证明正确性：Ax+b/(c'x+d)，仿射偏移部分为b/c'x+d，因此只需要令b=0即可。
+	//第一次应用transform变换。
+	void apply_transform_from_scene(const scene& s, const hmat& transform)
+	{
+		for (int i = 0; i < s.vlist.size(); i++)
+		{
+			hvec p = transform * s.vlist[i];
+			//重要，取景变换完毕后，在投影变换之前，先把真实的z值求出来一次。减少z值因浮点运算产生的误差。
+			p.normalize();
+			vlist.push_back(p);
+		}
+
+		//bremoved -> 去掉b的变换矩阵
+		hmat bremoved = transform;
+		for (int i = 0; i < 3; i++)
+			bremoved.A[i][3] = 0;
+
+		for (int i = 0; i < s.vnlist.size(); i++)
+		{
+			hvec p = bremoved * s.vnlist[i];
+			p.normalize();
+			vnlist.push_back(p);
+		}
+
+		//深度拷贝triangle面片
+		flist.assign(s.flist.begin(), s.flist.end());
 	}
 
+	//视域四棱台,仍然在ouvn坐标系中,u为up方向,theta为相应维度视线与水平线的最大夹角,theta<pi/2。
+	//front->视域四棱台前面，back->视域四棱台后面
+	void viewing_frustum(double utheta, double vtheta, double front, double back)
+	{
+		if (front < 0 || back < 0 || front > back)
+		{
+			printf("front或back有误\n");
+			return;
+		}
+		if (utheta > 0.5 * std::numbers::pi || vtheta > 0.5 * std::numbers::pi || utheta < 0 || vtheta < 0)
+		{
+			printf("视野夹角utheta或vtheta有误\n");
+			return;
+		}
+		double d = (front + back) / 2;
+		umax = d * tan(utheta);
+		vmax = d * tan(vtheta);
+
+		//projection(d);
+	}
+
+	//透视投影变换,d为投影平面，d>0
+	void projection(double d,hmat &transform)
+	{
+		if (d < 0)
+		{
+			printf("投影平面应当与视点为正距离");
+			return;
+		}
+
+		hmat T = hmat::get_unity();
+		T.A[3][2] = 1/d;
+		T.A[3][3] = 0;
+		transform = T * transform;
+
+		this->d = d;
+
+		print_transform("projection");
+	}
+
+	//在本场景现有的坐标上应用T变换，非第一次应用变换。
+	void apply_transform(const hmat& transform)
+	{
+		for (int i = 0; i < vlist.size(); i++)
+		{
+			hvec p = transform * vlist[i];
+			vlist[i] = p;
+		}
+
+		//bremoved -> 去掉b的变换矩阵
+		hmat bremoved = transform;
+		for (int i = 0; i < 3; i++)
+			bremoved.A[i][3] = 0;
+
+		for (int i = 0; i < vnlist.size(); i++)
+		{
+			hvec p = bremoved * vnlist[i];
+			vnlist[i] = p;
+		}
+	}
+
+	//裁剪掉视域四棱台以外的部分。
+	void clipping()
+	{
+		for (int i = 0; i < flist.size(); i++)
+		{
+			//flist[i]
+			
+		}
+	}
+
+
+	void ouvn_to_oxyz(vec& b)
+	{
+
+	}
 
 };
 
@@ -672,7 +812,7 @@ geometryfromobj soccerobj;
 geometry soccer;
 
 scene soccerfield;
-
+pipeline mypipeline;
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	FILE* fp;
@@ -693,13 +833,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	//soccer.print("");
 
 	soccerfield.generate_from_base(soccer,1000);
-	vec oo(0, 0, 0);
+	
+	vec oo(1, 1, 1);
 	vec nn(1, 1, 1);
 	vec uu(1, 2, 1);
-	//soccerfield.viewtransform(oo,nn,uu);
+	//mypipeline.viewtransform(oo,nn,uu);
+	//mypipeline.projection(5);
+
 
 	//soccerfield.print("");
-	
+
 	system("pause");
 	return 0;
 }
