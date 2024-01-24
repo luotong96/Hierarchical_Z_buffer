@@ -8,7 +8,7 @@
 #include <sstream>
 #include <random>
 #include <numbers>
-
+#include <list>
 using namespace std;
 //定义全局的向量，方便后续坐标变换的计算
 struct vec
@@ -115,7 +115,7 @@ struct geometryfromobj
 {
 	vector<vec> vlist;
 	vector<vec> vnlist;
-	vector<facetfromobj> flist;
+	list<facetfromobj> flist;
 
 	void read_from_file(string filename = "..\\soccerball.obj")
 	{
@@ -189,14 +189,13 @@ struct geometryfromobj
 	//多边形mesh转为triangle mesh
 	void triangle_mesh()
 	{
-		int n = flist.size();
-		for (int i = 0; i < n; i++)
-		{
-			//用新vector来装每个facet新产生的额外三角形面片
-			vector<facetfromobj> nfacetlist;
-			
+		//用新list来装每个facet新产生的额外三角形面片
+		list<facetfromobj> nfacetlist;
+		for (list<facetfromobj>::iterator it = flist.begin(); it != flist.end(); it++)
+		{			
+
 			//当前facet的端点列表
-			vector<indpair>& plst = flist[i].pointlist;
+			vector<indpair>& plst = it->pointlist;
 			int pcnt = plst.size();
 			if (pcnt > 3)
 			{
@@ -212,13 +211,8 @@ struct geometryfromobj
 				//只保留第一个三角形的三个点
 				plst.resize(3);
 			}
-
-			//新产生的三角形放回原flist中
-			for (int j = 0; j < nfacetlist.size(); j++)
-			{
-				flist.push_back(nfacetlist[j]);
-			}
 		}
+		flist.splice(flist.end(), nfacetlist);
 		print("triangle_mesh");
 	}
 	//打印输出当前面数，点数
@@ -228,9 +222,9 @@ struct geometryfromobj
 		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
 		map<int, int>mp;
 		printf("总面片数量=%d\n", flist.size());
-		for (int i = 0; i < flist.size(); i++)
+		for (list<facetfromobj>::iterator it = flist.begin(); it != flist.end(); it++)
 		{
-			int cnt = flist[i].pointlist.size();
+			int cnt = it->pointlist.size();
 			if (mp.find(cnt) == mp.end())
 			{
 				mp[cnt] = 0;
@@ -494,7 +488,7 @@ struct geometry
 {
 	vector<hvec> vlist;
 	vector<hvec> vnlist;
-	vector<triangle> flist;
+	list<triangle> flist;
 
 	//将geometryfromobj转化为geometry
 	void assign(const geometryfromobj& b)
@@ -562,7 +556,7 @@ struct scene {
 	//存储场景中所有顶点的法向坐标
 	vector<hvec> vnlist;
 	//存储场景中所有三角面片的顶点编号
-	vector<triangle> flist;
+	list<triangle> flist;
 	
 	void print(string funcname)
 	{
@@ -626,10 +620,10 @@ struct scene {
 				vnlist.push_back(nv);
 			}
 
-			for (int j = 0; j < base.flist.size(); j++)
+			for (list<triangle>::const_iterator it = base.flist.cbegin(); it != base.flist.cend(); it++)
 			{
 				//k < 3,因为每个triangle面片都只有三个顶点。
-				triangle ntriangle = base.flist[j];
+				triangle ntriangle = *it;
 				for (int k = 0; k < 3; k++)
 				{
 					//新的顶点编号
@@ -653,7 +647,7 @@ struct pipeline
 	//存储当前场景中所有顶点的法向坐标
 	vector<hvec> vnlist;
 	//存储当前场景中所有三角面片
-	vector<triangle> flist;
+	list<triangle> flist;
 
 	//Transform存储取景变换，投影变换,视窗变换等后续所有变换的复合变换。
 	
@@ -790,7 +784,7 @@ struct pipeline
 		}
 
 		//深度拷贝triangle面片
-		flist.assign(s.flist.begin(), s.flist.end());
+		flist.assign(s.flist.cbegin(), s.flist.cend());
 	}
 
 	//在本场景现有的坐标上应用T变换，非第一次应用变换。
@@ -819,9 +813,10 @@ struct pipeline
 	{
 
 		boundingbox frustum(-umax,umax,-vmax,vmax,front,back);
-		vector<triangle> nflist;
-		for (int i = 0; i < flist.size(); i++)
+
+		for (list<triangle>::iterator it = flist.begin(); it != flist.end(); it++)
 		{
+
 			//if(frustum.is_intersec_with_triangle())
 		}
 	}
