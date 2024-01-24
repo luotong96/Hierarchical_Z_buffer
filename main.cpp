@@ -660,6 +660,148 @@ struct scene {
 };
 
 
+//2维整数坐标
+struct vec2d
+{
+	int xy[2];
+	vec2d(int a = 0, int b = 0)
+	{
+		xy[0] = a;
+		xy[1] = b;
+	}
+	bool operator < (const vec2d &b)const
+	{
+		if (xy[0] != b.xy[0])
+			return xy[0] < b.xy[0];
+		return xy[1] < b.xy[1];
+	}
+};
+
+//层次z_buffer
+struct node
+{
+	//进入节点已知的数据。
+	node* parent;
+	//左上角坐标coord[0], 右下角坐标coord[1],
+	vec2d coord[2];
+
+	//进入节点未知待求解的数据。kids递归向下求解，z回溯求解。
+	node* kids[2][2];
+	double z;
+};
+struct zpyramid
+{
+	node* root;
+	zpyramid(int a,int b,int c,int d)
+	{
+		root = new node();
+		//左上角
+		root->coord[0] = vec2d(a,b);
+		//右下角
+		root->coord[1] = vec2d(c,d);
+	}
+	//单个像素点位置映射到堆中的叶节点。
+	map< vec2d , node* > mp;
+	//递归向下建立pyramid结点，回溯构建z值小顶堆。返回值为最小z值。
+	double make_up_heap(node* p)
+	{
+		double minz = DBL_MAX;
+
+		int x[2][2];
+		x[0][0] = (p->coord[0].xy[0] + p->coord[1].xy[0]) / 2;
+		x[0][1] = x[0][0] + 1;
+		x[1][0] = (p->coord[0].xy[1] + p->coord[1].xy[1]) / 2;
+		x[1][1] = x[1][0] + 1;
+
+		//左上角
+		if (!(x[0][1] > p->coord[1].xy[0] && x[1][1] > p->coord[1].xy[1]))
+		{
+			p->kids[0][0] = new node();
+			p->kids[0][0]->parent = p;
+			p->kids[0][0]->coord[0] = p->coord[0];
+			p->kids[0][0]->coord[1] = vec2d(x[0][0],x[1][0]);
+			minz = fmin(minz, make_up_heap(p->kids[0][0]));
+		}
+		else
+		{
+			//此时当前节点为单个像素，不可进一步拆分。
+			minz = DBL_MIN;
+			mp[p->coord[0]] = p;
+		}
+		//右上角
+		if (x[1][1] <= p->coord[1].xy[1])
+		{
+			p->kids[0][1] = new node();
+			p->kids[0][1]->parent = p;
+			p->kids[0][1]->coord[0] = vec2d(p->coord[0].xy[0],x[1][1]);
+			p->kids[0][1]->coord[1] = vec2d(x[0][0], p->coord[1].xy[1]);
+			minz = fmin(minz, make_up_heap(p->kids[0][1]));
+		}
+		//左下角
+		if (x[0][1] <= p->coord[1].xy[0])
+		{
+			p->kids[1][0] = new node();
+			p->kids[1][0]->parent = p;
+			p->kids[1][0]->coord[0] = vec2d(x[0][1],p->coord[0].xy[1]);
+			p->kids[1][0]->coord[1] = vec2d(p->coord[1].xy[0], x[1][0]);
+			minz = fmin(minz, make_up_heap(p->kids[1][0]));
+		}
+		//右下角
+		if (x[0][1] <= p->coord[1].xy[0] && x[1][1] <= p->coord[1].xy[1])
+		{
+			p->kids[1][1] = new node();
+			p->kids[1][1]->parent = p;
+			p->kids[1][1]->coord[0] = vec2d(x[0][1], x[1][1]);
+			p->kids[1][1]->coord[1] = p->coord[1];
+			minz = fmin(minz, make_up_heap(p->kids[1][1]));
+		}
+		return p->z = minz;
+	}
+
+	//更新单个像素的z_buffer值
+	void update(const vec2d& pixel, double nz)
+	{
+		if (mp.find(pixel) == mp.end())
+		{
+			printf("z_pyramid中找不到该像素对应的节点\n");
+			return;
+		}
+		node* p = mp[pixel];
+		p->z = nz;
+		while (p->parent != NULL)
+		{
+			node* par = p->parent;
+			//重新求一遍最小值父节点z_buffer的最小值。
+			double nmin = p->z;
+			for (int i = 0; i < 2; i++)
+			{
+				for (int j = 0; j < 2; j++)
+				{
+					if (par->kids[i][j] != NULL)
+					{
+						if (par->kids[i][j]->z < nmin)
+						{
+							nmin = par->kids[i][j]->z;
+						}
+					}
+				}
+			}
+			//如果更新成功，则继续向上更新，否则退出。
+			if (nmin < par->z)
+			{
+				par->z = nmin;
+				p = par;
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+
+
+};
+
 struct pipeline
 {
 	//存储当前场景中所有顶点的齐次坐标
@@ -922,19 +1064,22 @@ struct pipeline
 		yp /= 2;
 		hmat T;
 		//景物空间坐标直接与像素中心对齐，注意此处的坐标变换。
-		T.A[0][1] = -(yp + 1.0) / ymax;
-		T.A[1][0] = (xp + 1.0) / xmax;
+		T.A[0][1] = -yp / ymax;
+		T.A[1][0] = xp / xmax;
 		T.A[0][3] = yp - 0.5;
 		T.A[1][3] = xp - 0.5;
+		T.A[2][2] = T.A[3][3] = 1;
 
 		transform = T * transform;
 		//print_transform("window_transform");
 	}
 
-	//场景8叉树+ 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
-	void octree(const boundingbox &box)
+	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
+	//在oxyz空间做8叉树
+	void octree(const boundingbox &box,int threshold)
 	{
-
+		//检查当前节点是否被完全遮挡。
+		//if()
 	}
 };
 
