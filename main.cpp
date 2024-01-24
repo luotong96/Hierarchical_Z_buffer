@@ -475,9 +475,29 @@ struct boundingbox
 		return a;
 	}
 
+	//用于未来实现视域四棱体精准裁剪所有现存面片。
 	bool is_intersec_with_triangle(const triangle &tri, const vector<hvec>& vlist)const
 	{
 		return false;
+	}
+
+	bool is_contains_triangle(const triangle& tri, const vector<hvec>& vlist)const
+	{
+		for (int i = 0; i < 3; i++)
+		{
+			const hvec& p = vlist[tri.ends[i].vi];
+			
+			//三角形每个点p都在包围盒里才返回真。
+
+			for (int j = 0; j < 3; j++)
+			{
+				if (p.xyzw[j] < b[j][0] || p.xyzw[j] > b[j][1])
+				{
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 };
 
@@ -657,11 +677,16 @@ struct pipeline
 	//投影平面到视点的距离，应当为正数。
 	double d;
 
-	//ouvn坐标中，视域四棱台的大小。umax,vmax分别为视窗u,v坐标最大值，front,back是z值范围，以下四个坐标都为正数。
+	//ouvn坐标中，视域四棱台的大小。umax,vmax分别为视窗u,v坐标最大值，front,back是z值范围，以下四个坐标都为正数。正负轴对称。
 	double umax;
 	double vmax;
 	double front;
 	double back;
+
+	//oxyz坐标中的四棱体范围，都为正数。正负轴对称。
+	double xmax;
+	double ymax;
+	double zmax;
 
 	void print_transform(string funcname)
 	{
@@ -672,7 +697,7 @@ struct pipeline
 	}
 
 	//取景变换，世界坐标变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
-	void viewtransform(const vec& viewpoint, vec n, const vec& up,hmat& transform)
+	void view_transform(const vec& viewpoint, vec n, const vec& up,hmat& transform)
 	{
 		if (n == vec::get_zero_vector() || up == vec::get_zero_vector())
 		{
@@ -733,6 +758,7 @@ struct pipeline
 		vmax = d * tan(vtheta);
 		this->front = front;
 		this->back = back;
+
 	}
 
 	//透视投影变换,d为投影平面，d>0
@@ -814,19 +840,79 @@ struct pipeline
 
 		boundingbox frustum(-umax,umax,-vmax,vmax,front,back);
 
-		for (list<triangle>::iterator it = flist.begin(); it != flist.end(); it++)
+		for (list<triangle>::iterator it = flist.begin(); it != flist.end(); )
 		{
 
-			//if(frustum.is_intersec_with_triangle())
+			//此处考虑到裁剪算法的复杂性，只保留完全在视域四棱体内部的三角面片。未来可以将真正的三维裁剪在此处应用。
+			if (!frustum.is_contains_triangle(*it,vlist))
+			{
+				//注意erase的返回值指向被删除的下一个元素。
+				it = (flist.erase(it));
+				continue;
+			}
+			it++;
 		}
+
+		//根据剩余的triangle，删除相应的顶点坐标和顶点法向，同时修改triangle中顶点的编号。
+		vector<hvec> nvlist;
+		vector<hvec> nvnlist;
+		//map建立旧点编号到新的点编号的映射关系。
+		map<int, int> vmp;
+		map<int, int> vnmp;
+		for (list<triangle>::iterator it = flist.begin(); it != flist.end(); it++)
+		{
+			for (int i = 0; i < 3; i++)
+			{
+				int vi = it->ends[i].vi;
+				if (vmp.find(vi) == vmp.end())
+				{
+					nvlist.push_back(vlist[vi]);
+					vmp[vi] = nvlist.size();
+				}
+				int nvi = vmp[vi];
+				it->ends[i].vi = nvi;
+
+				int vni = it->ends[i].vni;
+				if (vnmp.find(vni) == vnmp.end())
+				{
+					nvnlist.push_back(vnlist[vni]);
+					vnmp[vni] = nvnlist.size();
+				}
+				int nvni = vnmp[vni];
+				it->ends[i].vni = nvni;
+			}
+		}
+
+		vlist.assign(nvlist.begin(),nvlist.end());
+		vnlist.assign(nvnlist.begin(), nvnlist.end());
+	}   
+
+	//ouvn变换到oxyz；oxyz的坐标原点放到投影平面上，与视点距离d。
+	void ouvn_to_oxyz(hmat &transform)
+	{
+		hmat T;
+		T.A[0][1] = T.A[1][0] = T.A[3][3] = 1;
+		T.A[2][2] = -1;
+		T.A[2][3] = d;
+		transform = T * transform;
+		xmax = vmax;
+		ymax = umax;
+		//小心精度误差。
+		zmax = fmax(d - front,back - d);
+		print_transform("ouvn_to_oxyz");
 	}
 
+	//视窗变换->变换到像素为单位的屏幕坐标系
+	void window_transform(hmat &transform)
+	{
+		
+	}
 
-	void ouvn_to_oxyz(vec& b)
+	//场景8叉树+ 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
+	void octree(const boundingbox &box)
 	{
 
 	}
-
 };
 
 geometryfromobj soccerobj;
