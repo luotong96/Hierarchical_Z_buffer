@@ -799,7 +799,12 @@ struct zpyramid
 		}
 	}
 
-
+	//判断覆盖任意子矩阵的最小pyramid节点,并返回该节点z值,a为左上角，b为右下角。
+	double min_enclosing_z(vec2d &a,vec2d &b,node *p)
+	{
+		//vec2d b是否作为2d盒子struct。
+		//若子矩阵完全在p的任意子节点范围内，则往下递归。否则，返回当前p->z值；
+	}
 };
 
 struct pipeline
@@ -1075,11 +1080,37 @@ struct pipeline
 	}
 
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
-	//在oxyz空间做8叉树
+	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,int threshold)
 	{
 		//检查当前节点是否被完全遮挡。
-		//if()
+		//当前box左上角和右下角在oxyz空间的齐次坐标,其z值一样，是当前box靠向视点这一面的z值。
+		hvec lefttop(box.b[0][0],box.b[1][1],box.b[2][1]);
+		hvec rightdown(box.b[0][1],box.b[1][0],box.b[2][1]);
+		
+
+		hmat T = hmat::get_unity();
+		
+		xpixelnum = 1024; ypixelnum = 768;
+		window_transform(1024, 768, T);
+
+		lefttop = T * lefttop;
+		rightdown = T * rightdown;
+
+		vec2d coord[2];
+		int xmin = max(0, (int)floor(fmin(lefttop.xyzw[0], rightdown.xyzw[0])));
+		int xmax = min(ypixelnum - 1,(int)ceil(fmax(lefttop.xyzw[0], rightdown.xyzw[0])));
+		int ymin = max(0,(int)floor(fmin(lefttop.xyzw[1], rightdown.xyzw[1])));
+		int ymax = min(xpixelnum - 1,(int)ceil(fmax(lefttop.xyzw[1], rightdown.xyzw[1])));
+
+		coord[0].xy[0] = xmin; coord[0].xy[1] = ymin;
+		coord[1].xy[0] = xmax; coord[1].xy[1] = ymax;
+		//------------------------------------以下需要检查正确性------------------------------
+		zpyramid as;//as应该放到本函数外面。octree流程需要再包一个流程触发函数。
+		//min_enclosing未实现
+		double z =  as.min_enclosing_z(coord[0],coord[1],as.root);
+		if (z > lefttop.xyzw[2])
+			return;
 	}
 };
 
