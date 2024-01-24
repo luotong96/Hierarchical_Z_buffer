@@ -688,6 +688,10 @@ struct pipeline
 	double ymax;
 	double zmax;
 
+	//屏幕分辨率
+	int xpixelnum;
+	int ypixelnum;
+
 	void print_transform(string funcname)
 	{
 		printf(("已完成"+funcname).c_str());
@@ -902,10 +906,29 @@ struct pipeline
 		print_transform("ouvn_to_oxyz");
 	}
 
-	//视窗变换->变换到像素为单位的屏幕坐标系
-	void window_transform(hmat &transform)
+	//视窗变换->变换到像素为单位的屏幕坐标系,屏幕坐标系原点在左上角。x向下为正，y向右为正。
+	//屏幕的像素为xp*yp,例如1024*768
+	void window_transform(int xp,int yp,hmat &transform)
 	{
-		
+		if (xp % 2 && yp % 2)
+		{
+			printf("屏幕像素需要为偶数!\n");
+			return;
+		}
+		this->xpixelnum = xp;
+		this->ypixelnum = yp;
+		//一半像素
+		xp /= 2;
+		yp /= 2;
+		hmat T;
+		//景物空间坐标直接与像素中心对齐，注意此处的坐标变换。
+		T.A[0][1] = -(yp + 1.0) / ymax;
+		T.A[1][0] = (xp + 1.0) / xmax;
+		T.A[0][3] = yp - 0.5;
+		T.A[1][3] = xp - 0.5;
+
+		transform = T * transform;
+		//print_transform("window_transform");
 	}
 
 	//场景8叉树+ 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
