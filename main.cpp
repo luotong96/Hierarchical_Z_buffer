@@ -90,6 +90,7 @@ struct vnfromobj
 	}
 };
 */
+
 //index pair,用于辅助存储facet中描述polygon顶点编号index的数据结构;
 //facetfromobj,来自obj文件的facet，可能是polygon
 
@@ -303,6 +304,20 @@ struct hvec
 		}
 		xyzw[3] = 1;
 	}
+	//仅在x,y分量上做归一化，令w=1，用于保留投影变换后的z值。
+	void normalize_x_y()
+	{
+		if (fabs(xyzw[3]) < eps)
+		{
+			printf("w为0，无法归一化\n");
+			return;
+		}
+		for (int i = 0; i < 2; i++)
+		{
+			xyzw[i] = xyzw[i] / xyzw[3];
+		}
+		xyzw[3] = 1;
+	}
 };
 struct hmat
 {
@@ -436,6 +451,10 @@ struct boundingbox
 	{
 		memset(b, 0, sizeof(b));
 	}
+	boundingbox(double x, double y, double z, double w, double m, double n)
+	{
+		b[0][0] = x; b[0][1] = y; b[1][0] = z; b[1][1] = w; b[2][0] = m; b[2][1] = n;
+	}
 	boundingbox(boundingbox& c)
 	{
 		memcpy(b, c.b, sizeof(b));
@@ -446,7 +465,7 @@ struct boundingbox
 	{
 		boundingbox a;
 		double(*mm)[2] = a.b;
-		memset(mm, 0, sizeof(mm));
+		memset(mm, 0, sizeof(a.b));
 		for (int i = 0; i < vlist.size(); i++)
 		{
 			for (int j = 0; j < 3; j++)
@@ -633,7 +652,7 @@ struct pipeline
 	vector<hvec> vlist;
 	//存储当前场景中所有顶点的法向坐标
 	vector<hvec> vnlist;
-	//存储当前场景中所有三角面片的顶点编号
+	//存储当前场景中所有三角面片
 	vector<triangle> flist;
 
 	//Transform存储取景变换，投影变换,视窗变换等后续所有变换的复合变换。
@@ -644,9 +663,11 @@ struct pipeline
 	//投影平面到视点的距离，应当为正数。
 	double d;
 
-	//视窗u,v坐标最大值，都为正数。
+	//ouvn坐标中，视域四棱台的大小。umax,vmax分别为视窗u,v坐标最大值，front,back是z值范围，以下四个坐标都为正数。
 	double umax;
 	double vmax;
+	double front;
+	double back;
 
 	void print_transform(string funcname)
 	{
@@ -698,36 +719,6 @@ struct pipeline
 
 		print_transform("viewtransform");
 	}
-	
-	//真正通过矩阵计算应用变换transform到场景中，并将结果填充到vlist，vnlist，flist
-	//transfrom直接应用至v,transform去掉仿射偏移后应用至vn。注意透视投影会影响法向量的方向。
-	//分块矩阵可以证明正确性：Ax+b/(c'x+d)，仿射偏移部分为b/c'x+d，因此只需要令b=0即可。
-	//第一次应用transform变换。
-	void apply_transform_from_scene(const scene& s, const hmat& transform)
-	{
-		for (int i = 0; i < s.vlist.size(); i++)
-		{
-			hvec p = transform * s.vlist[i];
-			//重要，取景变换完毕后，在投影变换之前，先把真实的z值求出来一次。减少z值因浮点运算产生的误差。
-			p.normalize();
-			vlist.push_back(p);
-		}
-
-		//bremoved -> 去掉b的变换矩阵
-		hmat bremoved = transform;
-		for (int i = 0; i < 3; i++)
-			bremoved.A[i][3] = 0;
-
-		for (int i = 0; i < s.vnlist.size(); i++)
-		{
-			hvec p = bremoved * s.vnlist[i];
-			p.normalize();
-			vnlist.push_back(p);
-		}
-
-		//深度拷贝triangle面片
-		flist.assign(s.flist.begin(), s.flist.end());
-	}
 
 	//视域四棱台,仍然在ouvn坐标系中,u为up方向,theta为相应维度视线与水平线的最大夹角,theta<pi/2。
 	//front->视域四棱台前面，back->视域四棱台后面
@@ -746,12 +737,12 @@ struct pipeline
 		double d = (front + back) / 2;
 		umax = d * tan(utheta);
 		vmax = d * tan(vtheta);
-
-		//projection(d);
+		this->front = front;
+		this->back = back;
 	}
 
 	//透视投影变换,d为投影平面，d>0
-	void projection(double d,hmat &transform)
+	void projection(hmat &transform)
 	{
 		if (d < 0)
 		{
@@ -767,6 +758,39 @@ struct pipeline
 		this->d = d;
 
 		print_transform("projection");
+	}
+
+
+	//真正通过矩阵计算应用变换transform到场景中，并将结果填充到vlist，vnlist，flist
+	//transfrom直接应用至v,transform去掉仿射偏移后应用至vn。注意透视投影会影响法向量的方向。
+	//分块矩阵可以证明正确性：Ax+b/(c'x+d)，仿射偏移部分为b/c'x+d，因此只需要令b=0即可。
+
+	//第一次应用transform变换。
+	void apply_transform_from_scene(const scene& s, const hmat& transform)
+	{
+		for (int i = 0; i < s.vlist.size(); i++)
+		{
+			hvec p = transform * s.vlist[i];
+			//重要：在投影变换之后，把真实的z值求出来。可以证明，包含投影变换的复合transform应用于初始数据的齐次坐标后，得到的x,y,z分量仍然等于仅对其做仿射坐标变换的分量。
+			//因此，复合投影变换之后将transform应用至初始数据，得到真实的z值，为视域四棱台clipping做准备。
+			p.normalize_x_y();
+			vlist.push_back(p);
+		}
+
+		//bremoved -> 去掉b的变换矩阵
+		hmat bremoved = transform;
+		for (int i = 0; i < 3; i++)
+			bremoved.A[i][3] = 0;
+
+		for (int i = 0; i < s.vnlist.size(); i++)
+		{
+			hvec p = bremoved * s.vnlist[i];
+			p.normalize_x_y();
+			vnlist.push_back(p);
+		}
+
+		//深度拷贝triangle面片
+		flist.assign(s.flist.begin(), s.flist.end());
 	}
 
 	//在本场景现有的坐标上应用T变换，非第一次应用变换。
@@ -793,10 +817,12 @@ struct pipeline
 	//裁剪掉视域四棱台以外的部分。
 	void clipping()
 	{
+
+		boundingbox frustum(-umax,umax,-vmax,vmax,front,back);
+		vector<triangle> nflist;
 		for (int i = 0; i < flist.size(); i++)
 		{
-			//flist[i]
-			
+			//if(frustum.is_intersec_with_triangle())
 		}
 	}
 
@@ -839,7 +865,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	vec uu(1, 2, 1);
 	//mypipeline.viewtransform(oo,nn,uu);
 	//mypipeline.projection(5);
-
 
 	//soccerfield.print("");
 
