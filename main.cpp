@@ -675,6 +675,57 @@ struct vec2d
 			return xy[0] < b.xy[0];
 		return xy[1] < b.xy[1];
 	}
+	vec2d operator - (const vec2d& b)const
+	{
+		vec2d nv;
+		nv.xy[0] = xy[0] - b.xy[0];
+		nv.xy[1] = xy[1] - b.xy[1];
+		return nv;
+	}
+	vec2d operator + (const vec2d& b)const
+	{
+		vec2d nv;
+		nv.xy[0] = xy[0] + b.xy[0];
+		nv.xy[1] = xy[1] + b.xy[1];
+		return nv;
+	}
+	vec2d operator / (int c)const
+	{
+		vec2d nv;
+		nv.xy[0] = xy[0]/c;
+		nv.xy[1] = xy[1]/c;
+		return nv;
+	}
+	bool operator < (const vec2d& b)const
+	{
+		if (xy[0] != b.xy[0])
+			return xy[0] < b.xy[0];
+		return xy[1] < b.xy[1];
+	}
+	bool operator == (const vec2d& b)const
+	{
+		return (xy[0] == b.xy[0]) && (xy[1] == b.xy[1]);
+	}
+};
+
+//2维正整数盒子
+struct box2d
+{
+	//ends[0]最靠近原点的向量，ends[1]最远离原点的向量。
+	vec2d ends[2];
+
+	//判断2维点是否在2d盒子内
+	bool is_point_in_box(const vec2d& b)const
+	{
+		for (int i = 0; i < 2; i++)
+		{
+			if (b.xy[i] < ends[0].xy[i] || b.xy[i] > ends[1].xy[i])
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 };
 
 //层次z_buffer
@@ -683,7 +734,7 @@ struct node
 	//进入节点已知的数据。
 	node* parent;
 	//左上角坐标coord[0], 右下角坐标coord[1],
-	vec2d coord[2];
+	box2d box;
 
 	//进入节点未知待求解的数据。kids递归向下求解，z回溯求解。
 	node* kids[2][2];
@@ -696,9 +747,9 @@ struct zpyramid
 	{
 		root = new node();
 		//左上角
-		root->coord[0] = vec2d(a,b);
+		root->box.ends[0] = vec2d(a,b);
 		//右下角
-		root->coord[1] = vec2d(c,d);
+		root->box.ends[1] = vec2d(c,d);
 	}
 	//单个像素点位置映射到堆中的叶节点。
 	map< vec2d , node* > mp;
@@ -706,55 +757,60 @@ struct zpyramid
 	double make_up_heap(node* p)
 	{
 		double minz = DBL_MAX;
+		//距离坐标原点的左下指向右上的向量。
+		vec2d corner[2][2];
+		corner[1][1] = p->box.ends[1];
+		corner[0][0] = corner[0][1] = corner[1][0] = p->box.ends[0];
+		corner[0][1].xy[1] = corner[1][1].xy[1];
+		corner[1][0].xy[0] = corner[1][1].xy[0];
 
-		int x[2][2];
-		x[0][0] = (p->coord[0].xy[0] + p->coord[1].xy[0]) / 2;
-		x[0][1] = x[0][0] + 1;
-		x[1][0] = (p->coord[0].xy[1] + p->coord[1].xy[1]) / 2;
-		x[1][1] = x[1][0] + 1;
-
-		//左上角
-		if (!(x[0][1] > p->coord[1].xy[0] && x[1][1] > p->coord[1].xy[1]))
+		//坐标左下角
+		if (!(corner[0][0] == corner[1][1]))
 		{
 			p->kids[0][0] = new node();
 			p->kids[0][0]->parent = p;
-			p->kids[0][0]->coord[0] = p->coord[0];
-			p->kids[0][0]->coord[1] = vec2d(x[0][0],x[1][0]);
+			p->kids[0][0]->box.ends[0] = corner[0][0];
+			p->kids[0][0]->box.ends[1] = (corner[0][0]+corner[1][1])/2;
 			minz = fmin(minz, make_up_heap(p->kids[0][0]));
 		}
 		else
 		{
 			//此时当前节点为单个像素，不可进一步拆分。
 			minz = DBL_MIN;
-			mp[p->coord[0]] = p;
+			mp[corner[0][0]] = p;
 		}
-		//右上角
-		if (x[1][1] <= p->coord[1].xy[1])
-		{
-			p->kids[0][1] = new node();
-			p->kids[0][1]->parent = p;
-			p->kids[0][1]->coord[0] = vec2d(p->coord[0].xy[0],x[1][1]);
-			p->kids[0][1]->coord[1] = vec2d(x[0][0], p->coord[1].xy[1]);
-			minz = fmin(minz, make_up_heap(p->kids[0][1]));
-		}
-		//左下角
-		if (x[0][1] <= p->coord[1].xy[0])
+
+		//坐标右下角
+		if (!(corner[0][0] == corner[1][0]))
 		{
 			p->kids[1][0] = new node();
 			p->kids[1][0]->parent = p;
-			p->kids[1][0]->coord[0] = vec2d(x[0][1],p->coord[0].xy[1]);
-			p->kids[1][0]->coord[1] = vec2d(p->coord[1].xy[0], x[1][0]);
+			p->kids[1][0]->box.ends[0] = (corner[0][0] + corner[1][0])/2 + vec2d(1,0);
+			p->kids[1][0]->box.ends[1] = (corner[1][0] + corner[1][1]) / 2;
 			minz = fmin(minz, make_up_heap(p->kids[1][0]));
 		}
-		//右下角
-		if (x[0][1] <= p->coord[1].xy[0] && x[1][1] <= p->coord[1].xy[1])
+
+		//坐标左上角
+
+		if (!(corner[0][0] == corner[0][1]))
+		{
+			p->kids[0][1] = new node();
+			p->kids[0][1]->parent = p;
+			p->kids[0][1]->box.ends[0] = corner[0][1];
+			p->kids[0][1]->box.ends[1] = (corner[0][0] + corner[1][1]) / 2 + vec2d(0,1);
+			minz = fmin(minz, make_up_heap(p->kids[0][1]));
+		}
+
+		//坐标右上角
+		if (corner[0][0] != corner[0][1] && corner[0][0] != corner[1][0])
 		{
 			p->kids[1][1] = new node();
 			p->kids[1][1]->parent = p;
-			p->kids[1][1]->coord[0] = vec2d(x[0][1], x[1][1]);
-			p->kids[1][1]->coord[1] = p->coord[1];
+			p->kids[1][1]->box.ends[0] = (corner[0][0] + corner[1][1]) / 2 + vec2d(1, 1);
+			p->kids[1][1]->box.ends[1] = corner[1][1];
 			minz = fmin(minz, make_up_heap(p->kids[1][1]));
 		}
+
 		return p->z = minz;
 	}
 
@@ -800,7 +856,7 @@ struct zpyramid
 	}
 
 	//判断覆盖任意子矩阵的最小pyramid节点,并返回该节点z值,a为左上角，b为右下角。
-	double min_enclosing_z(vec2d &a,vec2d &b,node *p)
+	double min_enclosing_z(const box2d &a, node *p)
 	{
 		//vec2d b是否作为2d盒子struct。
 		//若子矩阵完全在p的任意子节点范围内，则往下递归。否则，返回当前p->z值；
@@ -1087,7 +1143,7 @@ struct pipeline
 		//当前box左上角和右下角在oxyz空间的齐次坐标,其z值一样，是当前box靠向视点这一面的z值。
 		hvec lefttop(box.b[0][0],box.b[1][1],box.b[2][1]);
 		hvec rightdown(box.b[0][1],box.b[1][0],box.b[2][1]);
-		
+
 
 		hmat T = hmat::get_unity();
 		
@@ -1096,21 +1152,24 @@ struct pipeline
 
 		lefttop = T * lefttop;
 		rightdown = T * rightdown;
-
-		vec2d coord[2];
+		
+		//boxinwindow->当前8叉树节点对应的cube离视点最近的面转换到屏幕坐标系所得到的box投影到2维xy平面上
+		box2d boxinwindow;
 		int xmin = max(0, (int)floor(fmin(lefttop.xyzw[0], rightdown.xyzw[0])));
 		int xmax = min(ypixelnum - 1,(int)ceil(fmax(lefttop.xyzw[0], rightdown.xyzw[0])));
 		int ymin = max(0,(int)floor(fmin(lefttop.xyzw[1], rightdown.xyzw[1])));
 		int ymax = min(xpixelnum - 1,(int)ceil(fmax(lefttop.xyzw[1], rightdown.xyzw[1])));
 
-		coord[0].xy[0] = xmin; coord[0].xy[1] = ymin;
-		coord[1].xy[0] = xmax; coord[1].xy[1] = ymax;
+		boxinwindow.ends[0] = vec2d(xmin, ymin);
+		boxinwindow.ends[1] = vec2d(xmax, ymax);
+
 		//------------------------------------以下需要检查正确性------------------------------
 		zpyramid as;//as应该放到本函数外面。octree流程需要再包一个流程触发函数。
 		//min_enclosing未实现
-		double z =  as.min_enclosing_z(coord[0],coord[1],as.root);
+		double z =  as.min_enclosing_z(boxinwindow, as.root);
 		if (z > lefttop.xyzw[2])
 			return;
+
 	}
 };
 
