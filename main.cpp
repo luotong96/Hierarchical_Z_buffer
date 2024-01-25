@@ -696,12 +696,6 @@ struct vec2d
 		nv.xy[1] = xy[1]/c;
 		return nv;
 	}
-	bool operator < (const vec2d& b)const
-	{
-		if (xy[0] != b.xy[0])
-			return xy[0] < b.xy[0];
-		return xy[1] < b.xy[1];
-	}
 	bool operator == (const vec2d& b)const
 	{
 		return (xy[0] == b.xy[0]) && (xy[1] == b.xy[1]);
@@ -711,17 +705,37 @@ struct vec2d
 //2维正整数盒子
 struct box2d
 {
-	//ends[0]最靠近原点的向量，ends[1]最远离原点的向量。
+	//ends[0]最靠近原点的向量，ends[1]最远离原点的向量。闭区间。
 	vec2d ends[2];
 
-	//判断2维点是否在2d盒子内
-	bool is_point_in_box(const vec2d& b)const
+	//判断2维点是否在2d盒子内,边界也认为包含
+	bool is_point_within(const vec2d& b)const
 	{
 		for (int i = 0; i < 2; i++)
 		{
 			if (b.xy[i] < ends[0].xy[i] || b.xy[i] > ends[1].xy[i])
 			{
 				return false;
+			}
+		}
+		return true;
+	}
+	//判断2d盒子是否在本盒子内部，边界也认为包含
+	bool is_box2d_within(const box2d &b)const
+	{
+		vec2d points[2][2];
+		points[1][1] = b.ends[1];
+		points[0][0] = points[0][1] = points[1][0] = b.ends[0];
+		points[0][1].xy[1] = points[1][1].xy[1];
+		points[1][0].xy[0] = points[1][1].xy[0];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2; j++)
+			{
+				if (!is_point_within(points[i][j]))
+				{
+					return false;
+				}
 			}
 		}
 		return true;
@@ -743,13 +757,14 @@ struct node
 struct zpyramid
 {
 	node* root;
-	zpyramid(int a,int b,int c,int d)
+	//ends0为zpyramid最靠近坐标原点的整数下标向量，ends1为最原理原点的整数下标向量。
+	zpyramid(const vec2d &ends0,const vec2d &ends1)
 	{
 		root = new node();
 		//左上角
-		root->box.ends[0] = vec2d(a,b);
+		root->box.ends[0] = ends0;
 		//右下角
-		root->box.ends[1] = vec2d(c,d);
+		root->box.ends[1] = ends1;
 	}
 	//单个像素点位置映射到堆中的叶节点。
 	map< vec2d , node* > mp;
@@ -858,8 +873,20 @@ struct zpyramid
 	//判断覆盖任意子矩阵的最小pyramid节点,并返回该节点z值,a为左上角，b为右下角。
 	double min_enclosing_z(const box2d &a, node *p)
 	{
-		//vec2d b是否作为2d盒子struct。
 		//若子矩阵完全在p的任意子节点范围内，则往下递归。否则，返回当前p->z值；
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2; j++)
+			{
+				if (p->kids[i][j] == NULL)
+					continue;
+				if (p->kids[i][j]->box.is_box2d_within(a))
+				{
+					return min_enclosing_z(a,p->kids[i][j]);
+				}
+			}
+		}
+		return p->z;
 	}
 };
 
@@ -894,6 +921,9 @@ struct pipeline
 	//屏幕分辨率
 	int xpixelnum;
 	int ypixelnum;
+	
+	//场景8叉停止细分的三角面片数量
+	const int stop_triangle_num = 10;
 
 	void print_transform(string funcname)
 	{
@@ -1135,9 +1165,18 @@ struct pipeline
 		//print_transform("window_transform");
 	}
 
+	//消隐
+	void suface_visibility()
+	{
+		//注意屏幕坐标系与分辨率参数的对应关系。
+		zpyramid zpy(vec2d(0,0),vec2d(ypixelnum -1, xpixelnum -1));
+		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
+		octree(bb, stop_triangle_num, zpy);
+	}
+
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
-	void octree(const boundingbox &box,int threshold)
+	void octree(const boundingbox &box,int threshold,zpyramid &zpy)
 	{
 		//检查当前节点是否被完全遮挡。
 		//当前box左上角和右下角在oxyz空间的齐次坐标,其z值一样，是当前box靠向视点这一面的z值。
@@ -1153,7 +1192,7 @@ struct pipeline
 		lefttop = T * lefttop;
 		rightdown = T * rightdown;
 		
-		//boxinwindow->当前8叉树节点对应的cube离视点最近的面转换到屏幕坐标系所得到的box投影到2维xy平面上
+		//boxinwindow->当前8叉树节点对应的cube离视点最近的面c转换到屏幕坐标系所得到的box投影到2维xy平面上,注意此处较小坐标向下取整，较大坐标向上取整，保证变换后的投影不小于面c的投影。
 		box2d boxinwindow;
 		int xmin = max(0, (int)floor(fmin(lefttop.xyzw[0], rightdown.xyzw[0])));
 		int xmax = min(ypixelnum - 1,(int)ceil(fmax(lefttop.xyzw[0], rightdown.xyzw[0])));
@@ -1163,13 +1202,11 @@ struct pipeline
 		boxinwindow.ends[0] = vec2d(xmin, ymin);
 		boxinwindow.ends[1] = vec2d(xmax, ymax);
 
-		//------------------------------------以下需要检查正确性------------------------------
-		zpyramid as;//as应该放到本函数外面。octree流程需要再包一个流程触发函数。
-		//min_enclosing未实现
-		double z =  as.min_enclosing_z(boxinwindow, as.root);
+		double z =  zpy.min_enclosing_z(boxinwindow, zpy.root);
 		if (z > lefttop.xyzw[2])
 			return;
 
+		
 	}
 };
 
