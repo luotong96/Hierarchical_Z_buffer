@@ -454,7 +454,7 @@ struct boundingbox
 		memcpy(b, c.b, sizeof(b));
 	}
 
-	//静态的计算任意顶点集合的boundingbox
+	//静态的计算任意顶点集合的boundingbox,这个boundingbox边界上可以有顶点。
 	static boundingbox get_bounding_box(const vector<hvec>& vlist)
 	{
 		boundingbox a;
@@ -487,11 +487,11 @@ struct boundingbox
 		{
 			const hvec& p = vlist[tri.ends[i].vi];
 			
-			//三角形每个点p都在包围盒里才返回真。
+			//三角形每个点p都完全在包围盒里才返回真，不能在边界上
 
 			for (int j = 0; j < 3; j++)
 			{
-				if (p.xyzw[j] < b[j][0] || p.xyzw[j] > b[j][1])
+				if (p.xyzw[j] <= b[j][0] || p.xyzw[j] >= b[j][1])
 				{
 					return false;
 				}
@@ -1171,13 +1171,22 @@ struct pipeline
 		//注意屏幕坐标系与分辨率参数的对应关系。
 		zpyramid zpy(vec2d(0,0),vec2d(ypixelnum -1, xpixelnum -1));
 		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
-		octree(bb, stop_triangle_num, zpy);
+
+		//八叉树过程中会不断将三角面片list 8拆分，故使用原有的面片的备份进行运算。
+		list<triangle> mylist(flist);
+		octree(bb, mylist, stop_triangle_num, zpy);
 	}
 
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
-	void octree(const boundingbox &box,int threshold,zpyramid &zpy)
+	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
+		//剪枝
+		if (myflist.size() == 0)
+		{
+			return;
+		}
+
 		//检查当前节点是否被完全遮挡。
 		//当前box左上角和右下角在oxyz空间的齐次坐标,其z值一样，是当前box靠向视点这一面的z值。
 		hvec lefttop(box.b[0][0],box.b[1][1],box.b[2][1]);
@@ -1202,11 +1211,68 @@ struct pipeline
 		boxinwindow.ends[0] = vec2d(xmin, ymin);
 		boxinwindow.ends[1] = vec2d(xmax, ymax);
 
+		//若当前盒子完全不可见，则退出。
 		double z =  zpy.min_enclosing_z(boxinwindow, zpy.root);
 		if (z > lefttop.xyzw[2])
 			return;
-
 		
+		if (myflist.size() < threshold)
+		{
+			//扫描转换myflist
+			return;
+		}
+
+		//构造8个子盒子
+		//3个维度的最小、中间、最大3个值。
+		double points[3][3];
+		for (int i = 0; i < 3; i++)
+		{
+			points[i][0] = box.b[i][0];
+			points[i][2] = box.b[i][1];
+			points[i][1] = (points[i][0] + points[i][2]) / 2;
+		}
+		boundingbox subbox[2][2][2];
+		list<triangle> sublist[2][2][2];
+		//z值从大的开始，也就是离视点更近的box
+		for (int k = 1; k >= 0; k--)
+		{
+			//x值从小到大
+			for (int i = 0; i < 2; i++)
+			{
+				//y值从小到大
+				for (int j = 0; j < 2; j++)
+				{
+					//boundingbox[i][j]
+					subbox[i][j][k] = boundingbox(points[0][i], points[0][i + 1], points[1][j], points[1][j + 1], points[2][k], points[2][k + 1]);
+					for (list<triangle>::iterator it = myflist.begin();it != myflist.end();)
+					{
+						if (subbox[i][j][k].is_contains_triangle(*it,vlist))
+						{
+							sublist[i][j][k].push_back(*it);
+							myflist.erase(it);
+						}
+						else
+						{
+							it++;
+						}
+					}
+				}
+			}
+		}
+
+		//扫描转换myflist
+
+		//接着处理子节点
+		for (int k = 1; k >= 0; k--)
+		{
+			for (int i = 0; i < 2; i++)
+			{
+				for (int j = 0; j < 2; j++)
+				{
+					octree(subbox[i][j][k], sublist[i][j][k], threshold, zpy);
+				}
+			}
+		}
 	}
 };
 
