@@ -14,7 +14,7 @@ using namespace std;
 struct vec
 {
 	double xyz[3];
-	double eps = 1e-6;
+	double eps = 1e-8;
 	vec(double a = 0,double b = 0,double c = 0)
 	{
 		xyz[0] = a; xyz[1] = b; xyz[2] = c;
@@ -237,12 +237,13 @@ struct geometryfromobj
 		}
 	}
 };
+int sb = 0;
 
 //齐次坐标
 struct hvec
 {
 	double xyzw[4];
-	double eps = 1e-6;
+	double eps = 1e-8;
 	hvec(double a = 0, double b = 0, double c = 0,double d = 1)
 	{
 		xyzw[0] = a; xyzw[1] = b; xyzw[2] = c, xyzw[3] = d;
@@ -290,6 +291,10 @@ struct hvec
 		if (fabs(xyzw[3]) < eps)
 		{
 			printf("w为0，无法归一化\n");
+			for (int i = 0; i < 3; i++)
+			{
+				xyzw[i] = DBL_MAX;
+			}
 			return;
 		}
 		for (int i = 0; i < 3; i++)
@@ -298,12 +303,18 @@ struct hvec
 		}
 		xyzw[3] = 1;
 	}
+
 	//仅在x,y分量上做归一化，令w=1，用于保留投影变换后的z值。
 	void normalize_x_y()
 	{
 		if (fabs(xyzw[3]) < eps)
 		{
-			printf("w为0，无法归一化\n");
+			sb++;
+			//printf("w为0，无法xy归一化\n");
+			for (int i = 0; i < 2; i++)
+			{
+				xyzw[i] = DBL_MAX;
+			}
 			return;
 		}
 		for (int i = 0; i < 2; i++)
@@ -453,23 +464,30 @@ struct boundingbox
 	{
 		memcpy(b, c.b, sizeof(b));
 	}
-
+	void print()const
+	{
+		for (int i = 0; i < 3; i++)
+		{
+			printf("%f %f|", b[i][0],b[i][1]);
+		}
+		printf("\n");
+	}
 	//静态的计算任意顶点集合的boundingbox,这个boundingbox边界上可以有顶点。
 	static boundingbox get_bounding_box(const vector<hvec>& vlist)
 	{
 		boundingbox a;
-		double(*mm)[2] = a.b;
-		memset(mm, 0, sizeof(a.b));
+		memset(a.b, 0, sizeof(a.b));
+
 		for (int i = 0; i < vlist.size(); i++)
 		{
 			for (int j = 0; j < 3; j++)
 			{
 				//取xyz坐标时要注意除以w
 				double tt = vlist[i].xyzw[j] / vlist[i].xyzw[3];
-				if (tt < mm[j][0])
-					mm[j][0] = tt;
-				if (tt > mm[j][1])
-					mm[j][1] = tt;
+				if (tt < a.b[j][0])
+					a.b[j][0] = tt;
+				if (tt > a.b[j][1])
+					a.b[j][1] = tt;
 			}
 		}
 		return a;
@@ -485,7 +503,7 @@ struct boundingbox
 	{
 		for (int i = 0; i < 3; i++)
 		{
-			const hvec& p = vlist[tri.ends[i].vi];
+			const hvec& p = vlist[tri.ends[i].vi - 1];
 			
 			//三角形每个点p都完全在包围盒里才返回真，不能在边界上
 
@@ -529,7 +547,7 @@ struct geometry
 		//计算当前模型的包围盒
 		boundingbox bb = boundingbox::get_bounding_box(vlist);
 		//得到包围盒的中点
-		vec vs((bb.b[0][0] - bb.b[0][1])/2, (bb.b[1][0] - bb.b[1][1]) / 2, (bb.b[2][0] - bb.b[2][1]) / 2);
+		vec vs(-(bb.b[0][0] + bb.b[0][1])/2, -(bb.b[1][0] + bb.b[1][1]) / 2, -(bb.b[2][0] + bb.b[2][1]) / 2);
 		//得到仿射变换矩阵
 		hmat T = hmat::get_translation_hmat(vs);
 
@@ -740,6 +758,20 @@ struct box2d
 		}
 		return true;
 	}
+	bool is_triangle_within(const triangle& b, const vector<hvec>& v_in_window_list)const
+	{
+		for (int i = 0; i < 3; i++)
+		{
+			int x = min(768 - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[0])));
+			int y = min(1024 - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[1])));
+
+			if (!is_point_within(vec2d(x,y)))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 };
 
 //层次z_buffer
@@ -765,12 +797,14 @@ struct zpyramid
 		root->box.ends[0] = ends0;
 		//右下角
 		root->box.ends[1] = ends1;
+		root->z = -DBL_MAX;
 	}
 	//单个像素点位置映射到堆中的叶节点。
 	map< vec2d , node* > mp;
 	//递归向下建立pyramid结点，回溯构建z值小顶堆。返回值为最小z值。
 	double make_up_heap(node* p)
 	{
+		//printf("%d %d %d %d\n", p->box.ends[0].xy[0], p->box.ends[0].xy[1], p->box.ends[1].xy[0], p->box.ends[1].xy[1]);
 		double minz = DBL_MAX;
 		//距离坐标原点的左下指向右上的向量。
 		vec2d corner[2][2];
@@ -791,7 +825,7 @@ struct zpyramid
 		else
 		{
 			//此时当前节点为单个像素，不可进一步拆分。
-			minz = DBL_MIN;
+			minz = -DBL_MAX;
 			mp[corner[0][0]] = p;
 		}
 
@@ -811,8 +845,8 @@ struct zpyramid
 		{
 			p->kids[0][1] = new node();
 			p->kids[0][1]->parent = p;
-			p->kids[0][1]->box.ends[0] = corner[0][1];
-			p->kids[0][1]->box.ends[1] = (corner[0][0] + corner[1][1]) / 2 + vec2d(0,1);
+			p->kids[0][1]->box.ends[0] = (corner[0][0] + corner[0][1]) / 2 + vec2d(0,1);
+			p->kids[0][1]->box.ends[1] = (corner[0][1] + corner[1][1]) / 2;
 			minz = fmin(minz, make_up_heap(p->kids[0][1]));
 		}
 
@@ -829,12 +863,23 @@ struct zpyramid
 		return p->z = minz;
 	}
 
+	//得到单个像素的z值
+	double get_pixel_z(const vec2d& pixel)
+	{
+		if (mp.find(pixel) == mp.end())
+		{
+			printf("z_pyramid中找不到该像素对应的节点\n");
+			return 0;
+		}
+		return mp[pixel]->z;
+	}
+
 	//更新单个像素的z_buffer值
 	void update(const vec2d& pixel, double nz)
 	{
 		if (mp.find(pixel) == mp.end())
 		{
-			printf("z_pyramid中找不到该像素对应的节点\n");
+			printf("update_z_pyramid中找不到该像素对应的节点\n");
 			return;
 		}
 		node* p = mp[pixel];
@@ -888,12 +933,32 @@ struct zpyramid
 		}
 		return p->z;
 	}
+
+	double min_enclosing_z(const triangle& a, const vector<hvec> & v_in_window_list, node* p)
+	{
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2; j++)
+			{
+				if (p->kids[i][j] == NULL)
+					continue;
+				if (p->kids[i][j]->box.is_triangle_within(a,v_in_window_list))
+				{
+					return min_enclosing_z(a,v_in_window_list,p->kids[i][j]);
+				}
+			}
+		}
+		return p->z;
+	}
 };
 
 struct pipeline
 {
 	//存储当前场景中所有顶点的齐次坐标
 	vector<hvec> vlist;
+	//存储变换到屏幕坐标系后顶点的齐次坐标
+	vector<hvec> v_in_window_list;
+
 	//存储当前场景中所有顶点的法向坐标
 	vector<hvec> vnlist;
 	//存储当前场景中所有三角面片
@@ -925,6 +990,10 @@ struct pipeline
 	//场景8叉停止细分的三角面片数量
 	const int stop_triangle_num = 10;
 
+
+	//显示帧缓冲器
+	int framebuffer[768][1024];
+
 	void print_transform(string funcname)
 	{
 		printf(("已完成"+funcname).c_str());
@@ -948,8 +1017,9 @@ struct pipeline
 			printf("视线方向与up方向不能在一条直线上\n");
 			return;
 		}
-		v = v * (1.0/v.norm2());
+		v = v * (1.0 / v.norm2());
 		vec u = v.cross_product(n);
+		u = u * (1.0 / u.norm2());
 
 		this->c = viewpoint;
 		this->u = u;
@@ -995,7 +1065,7 @@ struct pipeline
 		vmax = d * tan(vtheta);
 		this->front = front;
 		this->back = back;
-
+		this->d = d;
 	}
 
 	//透视投影变换,d为投影平面，d>0
@@ -1042,7 +1112,7 @@ struct pipeline
 		for (int i = 0; i < s.vnlist.size(); i++)
 		{
 			hvec p = bremoved * s.vnlist[i];
-			p.normalize_x_y();
+			p.normalize();
 			vnlist.push_back(p);
 		}
 
@@ -1100,7 +1170,7 @@ struct pipeline
 		{
 			for (int i = 0; i < 3; i++)
 			{
-				int vi = it->ends[i].vi;
+				int vi = it->ends[i].vi - 1;
 				if (vmp.find(vi) == vmp.end())
 				{
 					nvlist.push_back(vlist[vi]);
@@ -1109,7 +1179,7 @@ struct pipeline
 				int nvi = vmp[vi];
 				it->ends[i].vi = nvi;
 
-				int vni = it->ends[i].vni;
+				int vni = it->ends[i].vni - 1;
 				if (vnmp.find(vni) == vnmp.end())
 				{
 					nvnlist.push_back(vnlist[vni]);
@@ -1166,21 +1236,191 @@ struct pipeline
 	}
 
 	//消隐
-	void suface_visibility()
+	void suface_visibility(hmat& transform)
 	{
+		//将顶点列表预先备份变换到图像坐标系，供scan_convert函数使用。
+		hmat T = transform;
+		xpixelnum = 1024; ypixelnum = 768;
+		window_transform(1024, 768, T);
+		
+		for (int i = 0; i < this->vlist.size(); i++)
+		{
+			hvec tmp = T * this->vlist[i];
+			
+			//变换后的坐标不能超过0-n-1的范围。
+			//tmp.xyzw[0] = min(double(ypixelnum - 1),max(0,floor(tmp.xyzw[0] + 0.5)));
+			//tmp.xyzw[1] = min(double(xpixelnum - 1), max(0, floor(tmp.xyzw[1] + 0.5)));
+
+			this->v_in_window_list.push_back(tmp);
+		}
+
 		//注意屏幕坐标系与分辨率参数的对应关系。
 		zpyramid zpy(vec2d(0,0),vec2d(ypixelnum -1, xpixelnum -1));
+		zpy.make_up_heap(zpy.root);
 		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
 
 		//八叉树过程中会不断将三角面片list 8拆分，故使用原有的面片的备份进行运算。
-		list<triangle> mylist(flist);
+		list<triangle> mylist(flist.begin(),flist.end());
 		octree(bb, mylist, stop_triangle_num, zpy);
 	}
+
+
+	static bool mycmp(const hvec&a, const hvec& b)
+	{
+		const double eps = 1e-6;
+		if(fabs(a.xyzw[1] - b.xyzw[1]) > eps)
+			return a.xyzw[1] > b.xyzw[1];
+		return a.xyzw[0] < b.xyzw[0];
+	}
+	//四舍五入找最近的整数，并保证在0——maxn-1的范围。
+	inline int double_to_legal_int(double a, int maxn)const
+	{
+		return max(0, min(maxn - 1, (int)floor(a + 0.5)));
+	}
+	void subprocess(hvec p[], zpyramid& zpy)
+	{
+
+		hvec l, r;
+
+		r = l = p[0];
+		hvec ldeltav = p[1] - p[0];
+		hvec rdeltav = p[2] - p[0];
+
+		const double eps = 1e-1;
+		if (fabs(p[1].xyzw[1] - p[0].xyzw[1]) < eps)
+		{
+			r = p[1];
+			ldeltav = p[2] - p[0];
+			rdeltav = p[2] - p[1];
+		}
+		//算出dy = -1时，dx,dz分别为多少
+		for (int i = 0; i < 3; i++)
+		{
+			if (i != 1)
+			{
+				ldeltav.xyzw[i] /= -ldeltav.xyzw[1];
+				rdeltav.xyzw[i] /= -rdeltav.xyzw[1];
+			}
+		}
+		rdeltav.xyzw[1] = ldeltav.xyzw[1] = -1;
+		rdeltav.xyzw[3] = ldeltav.xyzw[3] = 0;
+		//当前的y值赋为最上面的点的y值
+		double yy = p[0].xyzw[1];
+		//ymin为结束的y值
+		double ymin = p[2].xyzw[1];
+
+		while (1)
+		{
+			//算出每一行的向量变化量
+			hvec deltaz = r - l;
+			if (fabs(deltaz.xyzw[0]) <=1e-8)
+			{
+				deltaz.xyzw[2] = DBL_MAX;
+			}
+			else
+			{
+				deltaz.xyzw[2] /= deltaz.xyzw[0];
+			}
+			deltaz.xyzw[0] = 1;
+			deltaz.xyzw[1] = 0;
+			deltaz.xyzw[3] = 0;
+			hvec mid = l;
+			while (1)
+			{
+				//当前mid在x,y平面的合法投影坐标
+				int xp = double_to_legal_int(mid.xyzw[0], this->ypixelnum);
+				int yp = double_to_legal_int(mid.xyzw[1], this->xpixelnum);
+				vec2d points2d = vec2d(xp, yp);
+				if (mid.xyzw[2] > zpy.get_pixel_z(points2d))
+				{
+					//待补充更新帧缓冲器
+					framebuffer[xp][yp] = 1;
+					zpy.update(points2d, mid.xyzw[2]);
+				}
+
+				mid = mid + deltaz;
+				if (double_to_legal_int(mid.xyzw[0], this->ypixelnum) >= double_to_legal_int(r.xyzw[0], this->ypixelnum))
+				{
+					break;
+				}
+			}
+			l = l + ldeltav;
+			r = r + rdeltav;
+			//若下边界超出，则停止。
+			if (l.xyzw[1] < ymin || r.xyzw[1] < ymin)
+			{
+				break;
+			}
+		}
+	}
+	void scan_convert(const list<triangle> &mylist, zpyramid& zpy)
+	{
+		for (list<triangle>::const_iterator it = mylist.cbegin(); it != mylist.cend(); it++)
+		{
+			//printf("o\n");
+			hvec p[3];
+			double zmax = -DBL_MAX;
+			for (int i = 0; i < 3; i++)
+			{
+				p[i] = this->v_in_window_list[it->ends[i].vi - 1];
+				zmax = fmax(zmax, p[i].xyzw[2]);
+			}
+			double z_enclose = zpy.min_enclosing_z(*it, v_in_window_list, zpy.root);
+			if (z_enclose >= zmax)
+			{
+				//当前三角面片被遮挡。
+				continue;
+			}
+
+			//y值大的往前放，y值相同，x小的往前放。 
+			sort(p, p + 3, mycmp);
+
+			const double eps = 0.1;
+			//需要切成两部分来处理
+			if (fabs(p[0].xyzw[1] - p[1].xyzw[1]) >= eps && fabs(p[1].xyzw[1] - p[2].xyzw[1]) >= eps)
+			{
+				//p[0],p[2]中间切出一个新点
+				hvec delta = p[2] - p[0];
+				for (int i = 0; i < 3; i++)
+				{
+					if (i != 1)
+					{
+						delta.xyzw[i] = delta.xyzw[i] / delta.xyzw[1] * (p[1].xyzw[1] - p[0].xyzw[1]);
+					}
+				}
+				hvec npoint = delta + p[0];
+				npoint.xyzw[1] = p[1].xyzw[1];
+				npoint.xyzw[3] = 1;
+				
+				//处理上半部分
+				hvec p1[3];
+				p1[0] = p[0];
+				p1[1] = npoint;
+				p1[2] = p[1];
+				sort(p1, p1 + 3, &pipeline::mycmp);
+				subprocess(p1, zpy);
+				//处理下半部分
+				hvec p2[3];
+				p2[0] = npoint;
+				p2[1] = p[1];
+				p2[2] = p[2];
+				sort(p2, p2 + 3, &pipeline::mycmp);
+				subprocess(p2, zpy);
+			}
+			else
+			{
+				subprocess(p, zpy);
+
+			}
+		}
+	}
+
 
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
+		box.print();
 		//剪枝
 		if (myflist.size() == 0)
 		{
@@ -1219,6 +1459,7 @@ struct pipeline
 		if (myflist.size() < threshold)
 		{
 			//扫描转换myflist
+			scan_convert(myflist,zpy);
 			return;
 		}
 
@@ -1232,7 +1473,6 @@ struct pipeline
 			points[i][1] = (points[i][0] + points[i][2]) / 2;
 		}
 		boundingbox subbox[2][2][2];
-		list<triangle> sublist[2][2][2];
 		//z值从大的开始，也就是离视点更近的box
 		for (int k = 1; k >= 0; k--)
 		{
@@ -1244,23 +1484,42 @@ struct pipeline
 				{
 					//boundingbox[i][j]
 					subbox[i][j][k] = boundingbox(points[0][i], points[0][i + 1], points[1][j], points[1][j + 1], points[2][k], points[2][k + 1]);
-					for (list<triangle>::iterator it = myflist.begin();it != myflist.end();)
-					{
-						if (subbox[i][j][k].is_contains_triangle(*it,vlist))
-						{
-							sublist[i][j][k].push_back(*it);
-							myflist.erase(it);
-						}
-						else
-						{
-							it++;
-						}
-					}
 				}
 			}
 		}
 
+		list<triangle> sublist[2][2][2];
+		for (list<triangle>::iterator it = myflist.begin(); it != myflist.end();)
+		{ 
+			bool used = false;
+			for (int k = 1; k >= 0; k--)
+			{
+				for (int i = 0; i < 2; i++)
+				{
+					for (int j = 0; j < 2; j++)
+					{
+						if (subbox[i][j][k].is_contains_triangle(*it,this->vlist))
+						{
+							sublist[i][j][k].push_back(*it);
+							it = myflist.erase(it);
+							used = true;
+							break;
+						}
+					}
+					if (used)
+						break;
+				}
+				if (used)
+					break;
+			}
+			if (!used)
+			{
+				it++;
+			}
+		}
+
 		//扫描转换myflist
+		scan_convert(myflist, zpy);
 
 		//接着处理子节点
 		for (int k = 1; k >= 0; k--)
@@ -1272,6 +1531,18 @@ struct pipeline
 					octree(subbox[i][j][k], sublist[i][j][k], threshold, zpy);
 				}
 			}
+		}
+	}
+
+	void print_framebuffer()
+	{
+		for (int i = 0; i < ypixelnum; i++)
+		{
+			for (int j = 0; j < xpixelnum; j++)
+			{
+				printf("%d ", framebuffer[i][j]);
+			}
+			printf("\n");
 		}
 	}
 };
@@ -1302,14 +1573,42 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	soccerfield.generate_from_base(soccer,1000);
 	
-	vec oo(1, 1, 1);
+	vec oo(0, 0, 0);
 	vec nn(1, 1, 1);
-	vec uu(1, 2, 1);
-	//mypipeline.viewtransform(oo,nn,uu);
-	//mypipeline.projection(5);
+	vec uu(1, 1, 0);
+	hmat I = hmat::get_unity();
+	mypipeline.view_transform(oo,nn,uu,I);
+	mypipeline.viewing_frustum(1.0 / 3 * std::numbers::pi, 1.0 / 3 * std::numbers::pi, 10, 100);
+	mypipeline.projection(I);
+	mypipeline.apply_transform_from_scene(soccerfield,I);
+	printf("\ncnt = %d\n",sb);
+	mypipeline.clipping();
+	I = hmat::get_unity();
+	mypipeline.ouvn_to_oxyz(I);
+	mypipeline.suface_visibility(I);
+	//mypipeline.print_framebuffer();
 
-	//soccerfield.print("");
+
+	// 初始化绘图窗口
+	initgraph(1024, 768);
+
+	// 获取指向显示缓冲区的指针
+	DWORD* pMem = GetImageBuffer();
+	
+	// 直接对显示缓冲区赋值
+	for (int i = 0; i < 768; i++)
+		for (int j = 0; j < 1024; j++)
+		{
+			if(mypipeline.framebuffer[i][j] == 1)
+				pMem[i*1024+j] = BGR(RGB(0, 0, 255));
+		}
+	// 使显示缓冲区生效（注：操作指向 IMAGE 的显示缓冲区不需要这条语句）
+	FlushBatchDraw();
+
+	// 保存绘制的图像
+	saveimage(_T("C:\\Users\\luotong\\Desktop\\test.bmp"));
 
 	system("pause");
+	closegraph();
 	return 0;
 }
