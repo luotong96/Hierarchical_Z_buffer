@@ -23,6 +23,7 @@ struct vec
 	{
 		xyz[0] = a[0]; xyz[1] = a[1]; xyz[2] = a[2];
 	}
+
 	//默认拷贝构造函数
 
 	//向量相等当且仅当各坐标相等
@@ -63,11 +64,28 @@ struct vec
 	{
 		return vec(xyz[1] * b.xyz[2] - xyz[2] * b.xyz[1], xyz[2] * b.xyz[0] - xyz[0] * b.xyz[2], xyz[0] * b.xyz[1] - xyz[1] * b.xyz[0]);
 	}
+	//向量点积
+	double dot_product(const vec& b)const
+	{
+		double ans = 0;
+		for (int i = 0; i < 3; i++)
+		{
+			ans += xyz[i] * b.xyz[i];
+		}
+		return ans;
+	}
+	//三阶行列式，等价于先做叉积，再做点积。
+	static double determinant(const vec& a,const vec&b, const vec&c)
+	{
+		return (a.cross_product(b)).dot_product(c);
+	}
 
 	static vec get_zero_vector()
 	{
 		return vec(0, 0, 0);
 	}
+
+	
 };
 
 //vfromobj,来自obj文件的顶点v
@@ -494,7 +512,7 @@ struct boundingbox
 	}
 
 	//用于未来实现视域四棱体精准裁剪所有现存面片。
-	bool is_intersec_with_triangle(const triangle &tri, const vector<hvec>& vlist)const
+	bool is_intersect_with_triangle(const triangle &tri, const vector<hvec>& vlist)const
 	{
 		return false;
 	}
@@ -718,6 +736,14 @@ struct vec2d
 	{
 		return (xy[0] == b.xy[0]) && (xy[1] == b.xy[1]);
 	}
+
+	//vec构造函数重载中无法使用定义在后面的struct的类型。除非使用class，并在vec结构体前面加类声明。
+	//会破坏后面的代码，所以在本结构体中使用静态方法做替代。
+	static vec convert_to_vec(const vec2d& b)
+	{
+		//二维向量对应的三维齐次坐标
+		return vec(b.xy[0], b.xy[1], 1);
+	}
 };
 
 //2维正整数盒子
@@ -758,12 +784,14 @@ struct box2d
 		}
 		return true;
 	}
-	bool is_triangle_within(const triangle& b, const vector<hvec>& v_in_window_list)const
+
+	//判断三角形是否完全在本盒子内部，边界也认为包含
+	bool is_triangle_within(const triangle& b, const vector<hvec>& v_in_window_list,int xmax,int ymax)const
 	{
 		for (int i = 0; i < 3; i++)
 		{
-			int x = min(768 - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[0])));
-			int y = min(1024 - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[1])));
+			int x = min(xmax - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[0]+0.5)));
+			int y = min(ymax - 1, max(0, (int)floor(v_in_window_list[b.ends[i].vi - 1].xyzw[1]+0.5)));
 
 			if (!is_point_within(vec2d(x,y)))
 			{
@@ -771,6 +799,71 @@ struct box2d
 			}
 		}
 		return true;
+	}
+
+	//判断本2d盒子是否与三角形有公共点。使用重心坐标来判断。在double顶点坐标空间内，有公共点当且仅当，存在盒子顶点的像素中心在三角形内部，或者存在三角形顶点在盒子内部。
+	//具体计算参考维基的重心坐标章节。
+	bool is_intersect_with_triangle(const triangle& b, const vector<hvec>& v_in_window_list, int xmax, int ymax)const
+	{
+
+		vec points[3];
+		for (int i = 0; i < 3; i++)
+		{
+			points[i] = vec(v_in_window_list[b.ends[i].vi - 1].xyzw[0], v_in_window_list[b.ends[i].vi - 1].xyzw[1], 1);
+			
+			//如果三角形角点在整数2d盒子内，则一定相交
+			int x = min(xmax - 1, max(0, (int)floor(points[i].xyz[0] + 0.5)));
+			int y = min(ymax - 1, max(0, (int)floor(points[i].xyz[1] + 0.5)));
+			if (is_point_within(vec2d(x, y)))
+			{
+				return true;
+			}
+		}
+
+		//算重心坐标。
+		//三角形abc的面积
+		double abc = vec::determinant(points[0],points[1],points[2]);
+		
+		//四个顶点的3维齐次坐标,为防止漏掉一些像素，取整数坐标外移0.5作为角点坐标。
+		/*vec corner[2][2];
+		corner[0][0] = corner[0][1] = corner[1][0] = (vec2d::convert_to_vec(ends[0])+vec(-0.5,-0.5,0));
+		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] + 1, 0);
+		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] + 1, 0 , 0);
+		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0.5,0.5));
+		*/
+		vec corner[2][2];
+		corner[0][0] = corner[0][1] = corner[1][0] = (vec2d::convert_to_vec(ends[0]) + vec(0, 0, 0));
+		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] , 0);
+		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] , 0, 0);
+		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0, 0));
+
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2; j++)
+			{
+				//系数
+				double lmd[3];
+				//pbc的面积/abc的面积，得到系数。apc,abp同理
+				lmd[0]  = vec::determinant(corner[i][j], points[1], points[2])/abc;
+				lmd[1] = vec::determinant(points[0], corner[i][j], points[2])/abc;
+				lmd[2] = vec::determinant(points[0], points[1], corner[i][j])/abc;
+				bool in = true;
+				//因为计算角点的时候已经加了0.5,可能引入多余的点。因此这里计算时，边界上的点不算在三角形内部。
+				for (int k = 0; k < 3; k++)
+				{
+					if (lmd[k] <= 0 || lmd[k] >= 1)
+					{
+						in = false;
+						break;
+					}
+				}
+				if (in)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 };
 
@@ -933,8 +1026,8 @@ struct zpyramid
 		}
 		return p->z;
 	}
-
-	double min_enclosing_z(const triangle& a, const vector<hvec> & v_in_window_list, node* p)
+	//判断覆盖三角面片的最小pyramid节点
+	double min_enclosing_z(const triangle& a, const vector<hvec> & v_in_window_list, node* p,int xmax,int ymax)
 	{
 		for (int i = 0; i < 2; i++)
 		{
@@ -942,13 +1035,48 @@ struct zpyramid
 			{
 				if (p->kids[i][j] == NULL)
 					continue;
-				if (p->kids[i][j]->box.is_triangle_within(a,v_in_window_list))
+				if (p->kids[i][j]->box.is_triangle_within(a,v_in_window_list,xmax,ymax))
 				{
-					return min_enclosing_z(a,v_in_window_list,p->kids[i][j]);
+					return min_enclosing_z(a,v_in_window_list,p->kids[i][j],xmax,ymax);
 				}
 			}
 		}
 		return p->z;
+	}
+
+	//a与节点p相交的部分是否真的有可见点。
+	//假设进入的时候，三角形一定与当前节点的2d盒子有交集。
+	//xmax,ymax->2d范围最大的整数坐标+1。triz->三角形a的最大z值
+	bool is_visible(const triangle& a, const vector<hvec>& v_in_window_list, node* p, double triz ,int xmax, int ymax)
+	{
+		//如果相交的部分的最小z都更大，那么肯定不可见。
+		if (p->z >= triz)
+			return false;
+		//如果已经是单个像素了，并且前一条不满足，则一定可见。
+		if (p->box.ends[0] == p->box.ends[1])
+		{
+			return true;
+		}
+
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2; j++)
+			{
+				if (p->kids[i][j] == NULL)
+					continue;
+				//如果这个盒子与a相交
+				if (p->kids[i][j]->box.is_intersect_with_triangle(a,v_in_window_list,xmax,ymax))
+				{
+					//递归向下，如果相交的部分还有可见点，那么当前节点也有可见点
+					if (is_visible(a, v_in_window_list, p->kids[i][j], triz,xmax,ymax))
+					{
+						return true;
+					}
+				}
+			}
+		}
+		//相交的所有部分都不可见。
+		return false;
 	}
 };
 
@@ -992,7 +1120,7 @@ struct pipeline
 
 
 	//显示帧缓冲器
-	int framebuffer[768][1024];
+	int** framebuffer;
 
 	void print_transform(string funcname)
 	{
@@ -1218,8 +1346,7 @@ struct pipeline
 			printf("屏幕像素需要为偶数!\n");
 			return;
 		}
-		this->xpixelnum = xp;
-		this->ypixelnum = yp;
+
 		//一半像素
 		xp /= 2;
 		yp /= 2;
@@ -1236,12 +1363,19 @@ struct pipeline
 	}
 
 	//消隐
-	void suface_visibility(hmat& transform)
+	void surface_visibility(hmat& transform ,int xpixelnum,int ypixelnum)
 	{
+		this->xpixelnum = xpixelnum; this->ypixelnum = ypixelnum;
+
+		//帧缓冲区构建
+		framebuffer = new int* [ypixelnum];
+		for (int i = 0; i < ypixelnum; i++)
+			framebuffer[i] = new int[xpixelnum]();
+
+
 		//将顶点列表预先备份变换到图像坐标系，供scan_convert函数使用。
 		hmat T = transform;
-		xpixelnum = 1024; ypixelnum = 768;
-		window_transform(1024, 768, T);
+		window_transform(xpixelnum, ypixelnum, T);
 		
 		for (int i = 0; i < this->vlist.size(); i++)
 		{
@@ -1254,7 +1388,7 @@ struct pipeline
 			this->v_in_window_list.push_back(tmp);
 		}
 
-		//注意屏幕坐标系与分辨率参数的对应关系。
+		//建立zpyramid，注意屏幕坐标系与分辨率参数的对应关系。
 		zpyramid zpy(vec2d(0,0),vec2d(ypixelnum -1, xpixelnum -1));
 		zpy.make_up_heap(zpy.root);
 		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
@@ -1273,11 +1407,11 @@ struct pipeline
 		return a.xyzw[0] < b.xyzw[0];
 	}
 	//四舍五入找最近的整数，并保证在0——maxn-1的范围。
-	inline int double_to_legal_int(double a, int maxn)const
+	inline static int double_to_legal_int(double a, int maxn)
 	{
 		return max(0, min(maxn - 1, (int)floor(a + 0.5)));
 	}
-	void subprocess(hvec p[], zpyramid& zpy)
+	void subprocess(hvec p[3], zpyramid& zpy)
 	{
 
 		hvec l, r;
@@ -1353,11 +1487,13 @@ struct pipeline
 			}
 		}
 	}
-	void scan_convert(const list<triangle> &mylist, zpyramid& zpy)
+	//计算z_buffer跳过了多少面片
+	int cnta = 0;
+	int cntb = 0;
+	/*void scan_convert(const list<triangle>& mylist, zpyramid& zpy)
 	{
 		for (list<triangle>::const_iterator it = mylist.cbegin(); it != mylist.cend(); it++)
 		{
-			//printf("o\n");
 			hvec p[3];
 			double zmax = -DBL_MAX;
 			for (int i = 0; i < 3; i++)
@@ -1365,12 +1501,22 @@ struct pipeline
 				p[i] = this->v_in_window_list[it->ends[i].vi - 1];
 				zmax = fmax(zmax, p[i].xyzw[2]);
 			}
-			double z_enclose = zpy.min_enclosing_z(*it, v_in_window_list, zpy.root);
+			double z_enclose = zpy.min_enclosing_z(*it, v_in_window_list, zpy.root, ypixelnum, xpixelnum);
 			if (z_enclose >= zmax)
 			{
 				//当前三角面片被遮挡。
+				cnta++;
 				continue;
 			}
+			else
+			{
+				//判断是否真的可见。
+				if (!zpy.is_visible(*it,v_in_window_list,zpy.root,zmax,xmax,ymax))
+				{
+					cntb++;
+					continue;
+				}
+			//}
 
 			//y值大的往前放，y值相同，x小的往前放。 
 			sort(p, p + 3, mycmp);
@@ -1413,14 +1559,74 @@ struct pipeline
 
 			}
 		}
-	}
+	}*/
 
+	void scan_convert(const list<triangle>& mylist, zpyramid& zpy)
+	{
+		for (list<triangle>::const_iterator it = mylist.cbegin(); it != mylist.cend(); it++)
+		{
+			hvec p[3];
+			double zmax = -DBL_MAX;
+			for (int i = 0; i < 3; i++)
+			{
+				p[i] = this->v_in_window_list[it->ends[i].vi - 1];
+				zmax = fmax(zmax, p[i].xyzw[2]);
+			}
+			//判断是否真的可见。
+			if (!zpy.is_visible(*it, v_in_window_list, zpy.root, zmax, xmax, ymax))
+			{
+				cntb++;
+				continue;
+			}
+
+			//y值大的往前放，y值相同，x小的往前放。 
+			sort(p, p + 3, mycmp);
+
+			const double eps = 0.1;
+			//需要切成两部分来处理
+			if (fabs(p[0].xyzw[1] - p[1].xyzw[1]) >= eps && fabs(p[1].xyzw[1] - p[2].xyzw[1]) >= eps)
+			{
+				//p[0],p[2]中间切出一个新点
+				hvec delta = p[2] - p[0];
+				for (int i = 0; i < 3; i++)
+				{
+					if (i != 1)
+					{
+						delta.xyzw[i] = delta.xyzw[i] / delta.xyzw[1] * (p[1].xyzw[1] - p[0].xyzw[1]);
+					}
+				}
+				hvec npoint = delta + p[0];
+				npoint.xyzw[1] = p[1].xyzw[1];
+				npoint.xyzw[3] = 1;
+
+				//处理上半部分
+				hvec p1[3];
+				p1[0] = p[0];
+				p1[1] = npoint;
+				p1[2] = p[1];
+				sort(p1, p1 + 3, &pipeline::mycmp);
+				subprocess(p1, zpy);
+				//处理下半部分
+				hvec p2[3];
+				p2[0] = npoint;
+				p2[1] = p[1];
+				p2[2] = p[2];
+				sort(p2, p2 + 3, &pipeline::mycmp);
+				subprocess(p2, zpy);
+			}
+			else
+			{
+				subprocess(p, zpy);
+
+			}
+		}
+	}
 
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
-		box.print();
+		//box.print();
 		//剪枝
 		if (myflist.size() == 0)
 		{
@@ -1434,9 +1640,7 @@ struct pipeline
 
 
 		hmat T = hmat::get_unity();
-		
-		xpixelnum = 1024; ypixelnum = 768;
-		window_transform(1024, 768, T);
+		window_transform(xpixelnum, ypixelnum, T);
 
 		lefttop = T * lefttop;
 		rightdown = T * rightdown;
@@ -1585,9 +1789,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	mypipeline.clipping();
 	I = hmat::get_unity();
 	mypipeline.ouvn_to_oxyz(I);
-	mypipeline.suface_visibility(I);
+	mypipeline.surface_visibility(I,1024,768);
 	//mypipeline.print_framebuffer();
-
+	printf("cnta = %d cntb = %d", mypipeline.cnta, mypipeline.cntb);
 
 	// 初始化绘图窗口
 	initgraph(1024, 768);
