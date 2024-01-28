@@ -84,8 +84,6 @@ struct vec
 	{
 		return vec(0, 0, 0);
 	}
-
-	
 };
 
 //vfromobj,来自obj文件的顶点v
@@ -340,6 +338,12 @@ struct hvec
 			xyzw[i] = xyzw[i] / xyzw[3];
 		}
 		xyzw[3] = 1;
+	}
+
+	//甩掉w坐标，转换为3维坐标
+	vec convert_to_vec()const
+	{
+		return vec(xyzw[0], xyzw[1], xyzw[2]);
 	}
 };
 struct hmat
@@ -738,11 +742,11 @@ struct vec2d
 	}
 
 	//vec构造函数重载中无法使用定义在后面的struct的类型。除非使用class，并在vec结构体前面加类声明。
-	//会破坏后面的代码，所以在本结构体中使用静态方法做替代。
-	static vec convert_to_vec(const vec2d& b)
+	//会破坏后面的代码，所以在本结构体中使用convert方法做替代。
+	vec convert_to_vec()const
 	{
 		//二维向量对应的三维齐次坐标
-		return vec(b.xy[0], b.xy[1], 1);
+		return vec(xy[0], xy[1], 1);
 	}
 };
 
@@ -832,10 +836,10 @@ struct box2d
 		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0.5,0.5));
 		*/
 		vec corner[2][2];
-		corner[0][0] = corner[0][1] = corner[1][0] = (vec2d::convert_to_vec(ends[0]) + vec(0, 0, 0));
+		corner[0][0] = corner[0][1] = corner[1][0] = (ends[0].convert_to_vec()) + vec(0, 0,0));
 		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] , 0);
 		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] , 0, 0);
-		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0, 0));
+		corner[1][1] = (ends[1].convert_to_vec() + vec(0, 0));
 
 		for (int i = 0; i < 2; i++)
 		{
@@ -1093,7 +1097,7 @@ struct pipeline
 	list<triangle> flist;
 
 	//Transform存储取景变换，投影变换,视窗变换等后续所有变换的复合变换。
-	
+
 	//cuvn视点坐标向量
 	hvec c, u, v, n;
 
@@ -1114,7 +1118,7 @@ struct pipeline
 	//屏幕分辨率
 	int xpixelnum;
 	int ypixelnum;
-	
+
 	//场景8叉停止细分的三角面片数量
 	const int stop_triangle_num = 10;
 
@@ -1124,14 +1128,14 @@ struct pipeline
 
 	void print_transform(string funcname)
 	{
-		printf(("已完成"+funcname).c_str());
+		printf(("已完成" + funcname).c_str());
 		//printf(" transform当前为：\n");
 		//transform.print();
 
 	}
 
 	//取景变换，世界坐标变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
-	void view_transform(const vec& viewpoint, vec n, const vec& up,hmat& transform)
+	void view_transform(const vec& viewpoint, vec n, const vec& up, hmat& transform)
 	{
 		if (n == vec::get_zero_vector() || up == vec::get_zero_vector())
 		{
@@ -1197,7 +1201,7 @@ struct pipeline
 	}
 
 	//透视投影变换,d为投影平面，d>0
-	void projection(hmat &transform)
+	void projection(hmat& transform)
 	{
 		if (d < 0)
 		{
@@ -1206,7 +1210,7 @@ struct pipeline
 		}
 
 		hmat T = hmat::get_unity();
-		T.A[3][2] = 1/d;
+		T.A[3][2] = 1 / d;
 		T.A[3][3] = 0;
 		transform = T * transform;
 
@@ -1273,13 +1277,13 @@ struct pipeline
 	void clipping()
 	{
 
-		boundingbox frustum(-umax,umax,-vmax,vmax,front,back);
+		boundingbox frustum(-umax, umax, -vmax, vmax, front, back);
 
 		for (list<triangle>::iterator it = flist.begin(); it != flist.end(); )
 		{
 
 			//此处考虑到裁剪算法的复杂性，只保留完全在视域四棱体内部的三角面片。未来可以将真正的三维裁剪在此处应用。
-			if (!frustum.is_contains_triangle(*it,vlist))
+			if (!frustum.is_contains_triangle(*it, vlist))
 			{
 				//注意erase的返回值指向被删除的下一个元素。
 				it = (flist.erase(it));
@@ -1318,12 +1322,12 @@ struct pipeline
 			}
 		}
 
-		vlist.assign(nvlist.begin(),nvlist.end());
+		vlist.assign(nvlist.begin(), nvlist.end());
 		vnlist.assign(nvnlist.begin(), nvnlist.end());
-	}   
+	}
 
 	//ouvn变换到oxyz；oxyz的坐标原点放到投影平面上，与视点距离d。
-	void ouvn_to_oxyz(hmat &transform)
+	void ouvn_to_oxyz(hmat& transform)
 	{
 		hmat T;
 		T.A[0][1] = T.A[1][0] = T.A[3][3] = 1;
@@ -1333,13 +1337,13 @@ struct pipeline
 		xmax = vmax;
 		ymax = umax;
 		//小心精度误差。
-		zmax = fmax(d - front,back - d);
+		zmax = fmax(d - front, back - d);
 		print_transform("ouvn_to_oxyz");
 	}
 
 	//视窗变换->变换到像素为单位的屏幕坐标系,屏幕坐标系原点在左上角。x向下为正，y向右为正。
 	//屏幕的像素为xp*yp,例如1024*768
-	void window_transform(int xp,int yp,hmat &transform)
+	void window_transform(int xp, int yp, hmat& transform)
 	{
 		if (xp % 2 && yp % 2)
 		{
@@ -1363,7 +1367,7 @@ struct pipeline
 	}
 
 	//消隐
-	void surface_visibility(hmat& transform ,int xpixelnum,int ypixelnum)
+	void surface_visibility(hmat& transform, int xpixelnum, int ypixelnum)
 	{
 		this->xpixelnum = xpixelnum; this->ypixelnum = ypixelnum;
 
@@ -1376,11 +1380,11 @@ struct pipeline
 		//将顶点列表预先备份变换到图像坐标系，供scan_convert函数使用。
 		hmat T = transform;
 		window_transform(xpixelnum, ypixelnum, T);
-		
+
 		for (int i = 0; i < this->vlist.size(); i++)
 		{
 			hvec tmp = T * this->vlist[i];
-			
+
 			//变换后的坐标不能超过0-n-1的范围。
 			//tmp.xyzw[0] = min(double(ypixelnum - 1),max(0,floor(tmp.xyzw[0] + 0.5)));
 			//tmp.xyzw[1] = min(double(xpixelnum - 1), max(0, floor(tmp.xyzw[1] + 0.5)));
@@ -1389,20 +1393,20 @@ struct pipeline
 		}
 
 		//建立zpyramid，注意屏幕坐标系与分辨率参数的对应关系。
-		zpyramid zpy(vec2d(0,0),vec2d(ypixelnum -1, xpixelnum -1));
+		zpyramid zpy(vec2d(0, 0), vec2d(ypixelnum - 1, xpixelnum - 1));
 		zpy.make_up_heap(zpy.root);
 		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
 
 		//八叉树过程中会不断将三角面片list 8拆分，故使用原有的面片的备份进行运算。
-		list<triangle> mylist(flist.begin(),flist.end());
+		list<triangle> mylist(flist.begin(), flist.end());
 		octree(bb, mylist, stop_triangle_num, zpy);
 	}
 
 
-	static bool mycmp(const hvec&a, const hvec& b)
+	static bool mycmp(const hvec& a, const hvec& b)
 	{
 		const double eps = 1e-6;
-		if(fabs(a.xyzw[1] - b.xyzw[1]) > eps)
+		if (a.xyzw[1] != b.xyzw[1])
 			return a.xyzw[1] > b.xyzw[1];
 		return a.xyzw[0] < b.xyzw[0];
 	}
@@ -1447,7 +1451,7 @@ struct pipeline
 		{
 			//算出每一行的向量变化量
 			hvec deltaz = r - l;
-			if (fabs(deltaz.xyzw[0]) <=1e-8)
+			if (fabs(deltaz.xyzw[0]) <= 1e-8)
 			{
 				deltaz.xyzw[2] = DBL_MAX;
 			}
@@ -1518,7 +1522,7 @@ struct pipeline
 				}
 			//}
 
-			//y值大的往前放，y值相同，x小的往前放。 
+			//y值大的往前放，y值相同，x小的往前放。
 			sort(p, p + 3, mycmp);
 
 			const double eps = 0.1;
@@ -1537,7 +1541,7 @@ struct pipeline
 				hvec npoint = delta + p[0];
 				npoint.xyzw[1] = p[1].xyzw[1];
 				npoint.xyzw[3] = 1;
-				
+
 				//处理上半部分
 				hvec p1[3];
 				p1[0] = p[0];
@@ -1582,43 +1586,27 @@ struct pipeline
 			//y值大的往前放，y值相同，x小的往前放。 
 			sort(p, p + 3, mycmp);
 
-			const double eps = 0.1;
-			//需要切成两部分来处理
-			if (fabs(p[0].xyzw[1] - p[1].xyzw[1]) >= eps && fabs(p[1].xyzw[1] - p[2].xyzw[1]) >= eps)
+			//normal 当前三角形面片的法向
+			vec l = (p[1] - p[0]).convert_to_vec();
+			vec r = (p[2] - p[0]).convert_to_vec();
+			vec normal = l.cross_product(r);
+			if (normal.xyz[2] == 0)
 			{
-				//p[0],p[2]中间切出一个新点
-				hvec delta = p[2] - p[0];
-				for (int i = 0; i < 3; i++)
-				{
-					if (i != 1)
-					{
-						delta.xyzw[i] = delta.xyzw[i] / delta.xyzw[1] * (p[1].xyzw[1] - p[0].xyzw[1]);
-					}
-				}
-				hvec npoint = delta + p[0];
-				npoint.xyzw[1] = p[1].xyzw[1];
-				npoint.xyzw[3] = 1;
-
-				//处理上半部分
-				hvec p1[3];
-				p1[0] = p[0];
-				p1[1] = npoint;
-				p1[2] = p[1];
-				sort(p1, p1 + 3, &pipeline::mycmp);
-				subprocess(p1, zpy);
-				//处理下半部分
-				hvec p2[3];
-				p2[0] = npoint;
-				p2[1] = p[1];
-				p2[2] = p[2];
-				sort(p2, p2 + 3, &pipeline::mycmp);
-				subprocess(p2, zpy);
+				//投影到xy平面上后三点共线。
+				continue;
 			}
-			else
+			double dzx = -normal.xyz[0] / normal.xyz[2];
+			double dzy = normal.xyz[1] / normal.xyz[2];
+
+			//除了三点共线的情况以外，只可能l水平或者第二段l水平。具体画图讨论。
+			if (l.xyz[0] == 0 || r.xyz[0] == 0)
 			{
-				subprocess(p, zpy);
-
+				//水平线
 			}
+
+			double dxl = -l.xyz[1] / l.xyz[0];
+			double dxr = -r.xyz[1] / r.xyz[0];
+
 		}
 	}
 
