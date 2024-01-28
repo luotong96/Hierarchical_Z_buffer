@@ -743,10 +743,10 @@ struct vec2d
 
 	//vec构造函数重载中无法使用定义在后面的struct的类型。除非使用class，并在vec结构体前面加类声明。
 	//会破坏后面的代码，所以在本结构体中使用convert方法做替代。
-	vec convert_to_vec()const
+	static vec convert_to_vec(const vec2d& b)
 	{
 		//二维向量对应的三维齐次坐标
-		return vec(xy[0], xy[1], 1);
+		return vec(b.xy[0], b.xy[1], 1);
 	}
 };
 
@@ -829,18 +829,13 @@ struct box2d
 		double abc = vec::determinant(points[0],points[1],points[2]);
 		
 		//四个顶点的3维齐次坐标,为防止漏掉一些像素，取整数坐标外移0.5作为角点坐标。
-		/*vec corner[2][2];
+		vec corner[2][2];
 		corner[0][0] = corner[0][1] = corner[1][0] = (vec2d::convert_to_vec(ends[0])+vec(-0.5,-0.5,0));
 		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] + 1, 0);
 		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] + 1, 0 , 0);
 		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0.5,0.5));
-		*/
-		vec corner[2][2];
-		corner[0][0] = corner[0][1] = corner[1][0] = (ends[0].convert_to_vec()) + vec(0, 0,0));
-		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] , 0);
-		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] , 0, 0);
-		corner[1][1] = (ends[1].convert_to_vec() + vec(0, 0));
-
+		
+		
 		for (int i = 0; i < 2; i++)
 		{
 			for (int j = 0; j < 2; j++)
@@ -1599,13 +1594,33 @@ struct pipeline
 			double dzy = normal.xyz[1] / normal.xyz[2];
 
 			//除了三点共线的情况以外，只可能l水平或者第二段l水平。具体画图讨论。
-			if (l.xyz[0] == 0 || r.xyz[0] == 0)
+			if (l.xyz[0] == 0 )
 			{
 				//水平线
 			}
 
 			double dxl = -l.xyz[1] / l.xyz[0];
 			double dxr = -r.xyz[1] / r.xyz[0];
+
+			double xl = p[0].xyzw[0];
+			double xr = p[0].xyzw[1];
+			double zl = p[0].xyzw[2];
+			
+			//topminus1,顶点的下面一个整数坐标。
+			int topminus1 =  double_to_legal_int(p[0].xyzw[1],xpixelnum)-1;
+			if (topminus1 < 0)
+			{
+				//顶点已在边缘。
+				continue;
+			}
+			double ydelta = topminus1 - p[0].xyzw[1];
+
+			while (true)
+			{
+				xl += ydelta * dxl;
+				xr += ydelta * dxr;
+
+			}
 
 		}
 	}
