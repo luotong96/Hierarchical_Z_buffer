@@ -768,6 +768,17 @@ struct box2d
 		}
 		return true;
 	}
+	//判断浮点2维坐标是否在本盒子内部。盒子的边界像素取像素中心坐标。
+	bool is_point_within(double xy[2])const
+	{
+		for (int i = 0; i < 2; i++)
+		{
+			//边界不算Within
+			if (xy[i] <= ends[0].xy[i] || xy[i] >= ends[1].xy[i])
+				return false;
+		}
+		return true;
+	}
 	//判断2d盒子是否在本盒子内部，边界也认为包含
 	bool is_box2d_within(const box2d &b)const
 	{
@@ -815,10 +826,17 @@ struct box2d
 		{
 			points[i] = vec(v_in_window_list[b.ends[i].vi - 1].xyzw[0], v_in_window_list[b.ends[i].vi - 1].xyzw[1], 1);
 			
+			
+			double xy[2];
+			xy[0] = points[i].xyz[0];
+			xy[1] = points[i].xyz[1];
+			/*错误
 			//如果三角形角点在整数2d盒子内，则一定相交
 			int x = min(xmax - 1, max(0, (int)floor(points[i].xyz[0] + 0.5)));
-			int y = min(ymax - 1, max(0, (int)floor(points[i].xyz[1] + 0.5)));
-			if (is_point_within(vec2d(x, y)))
+			int y = min(ymax - 1, max(0, (int)floor(points[i].xyz[1] + 0.5)));*/
+			
+			//三角形的角点要完全在像素中心的网格内部，但此处还是会多引入不存在的点，需要再想。
+			if (is_point_within(xy))
 			{
 				return true;
 			}
@@ -828,14 +846,21 @@ struct box2d
 		//三角形abc的面积
 		double abc = vec::determinant(points[0],points[1],points[2]);
 		
+		/*错误
 		//四个顶点的3维齐次坐标,为防止漏掉一些像素，取整数坐标外移0.5作为角点坐标。
 		vec corner[2][2];
 		corner[0][0] = corner[0][1] = corner[1][0] = (vec2d::convert_to_vec(ends[0])+vec(-0.5,-0.5,0));
 		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] + 1, 0);
 		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] + 1, 0 , 0);
 		corner[1][1] = (vec2d::convert_to_vec(ends[1]) + vec(0.5,0.5));
+		*/
 		
-		
+		vec corner[2][2];
+		corner[0][0] = corner[0][1] = corner[1][0] = vec2d::convert_to_vec(ends[0]);
+		corner[0][1] = corner[0][1] + vec(0, (ends[1] - ends[0]).xy[1] + 1, 0);
+		corner[1][0] = corner[1][0] + vec((ends[1] - ends[0]).xy[0] + 1, 0, 0);
+		corner[1][1] = vec2d::convert_to_vec(ends[1]);
+
 		for (int i = 0; i < 2; i++)
 		{
 			for (int j = 0; j < 2; j++)
@@ -847,10 +872,11 @@ struct box2d
 				lmd[1] = vec::determinant(points[0], corner[i][j], points[2])/abc;
 				lmd[2] = vec::determinant(points[0], points[1], corner[i][j])/abc;
 				bool in = true;
-				//因为计算角点的时候已经加了0.5,可能引入多余的点。因此这里计算时，边界上的点不算在三角形内部。
+
 				for (int k = 0; k < 3; k++)
 				{
-					if (lmd[k] <= 0 || lmd[k] >= 1)
+					//只要不在三角形外部，则一定相交。在三角形边上也认为相交，见wiki重心坐标
+					if (lmd[k] < 0)
 					{
 						in = false;
 						break;
@@ -960,7 +986,7 @@ struct zpyramid
 	{
 		if (mp.find(pixel) == mp.end())
 		{
-			printf("z_pyramid中找不到该像素对应的节点\n");
+			printf("z_pyramid中找不到该像素对应的节点 # %d # %d #\n", pixel.xy[0], pixel.xy[1]);
 			return 0;
 		}
 		return mp[pixel]->z;
@@ -971,7 +997,7 @@ struct zpyramid
 	{
 		if (mp.find(pixel) == mp.end())
 		{
-			printf("update_z_pyramid中找不到该像素对应的节点\n");
+			printf("update_z_pyramid中找不到该像素对应的节点 # %d # %d #\n",pixel.xy[0],pixel.xy[1]);
 			return;
 		}
 		node* p = mp[pixel];
@@ -1410,7 +1436,7 @@ struct pipeline
 	{
 		return max(0, min(maxn - 1, (int)floor(a + 0.5)));
 	}
-	void subprocess(hvec p[3], zpyramid& zpy)
+	/*void subprocess(hvec p[3], zpyramid& zpy)
 	{
 
 		hvec l, r;
@@ -1485,7 +1511,7 @@ struct pipeline
 				break;
 			}
 		}
-	}
+	}*/
 	//计算z_buffer跳过了多少面片
 	int cnta = 0;
 	int cntb = 0;
@@ -1560,6 +1586,7 @@ struct pipeline
 		}
 	}*/
 
+
 	void scan_convert(const list<triangle>& mylist, zpyramid& zpy)
 	{
 		for (list<triangle>::const_iterator it = mylist.cbegin(); it != mylist.cend(); it++)
@@ -1584,6 +1611,9 @@ struct pipeline
 			//normal 当前三角形面片的法向
 			vec l = (p[1] - p[0]).convert_to_vec();
 			vec r = (p[2] - p[0]).convert_to_vec();
+			//l向量在x方向前进的终止位置。
+			double endx = p[1].xyzw[0];
+
 			vec normal = l.cross_product(r);
 			if (normal.xyz[2] == 0)
 			{
@@ -1591,20 +1621,24 @@ struct pipeline
 				continue;
 			}
 			double dzx = -normal.xyz[0] / normal.xyz[2];
-			double dzy = normal.xyz[1] / normal.xyz[2];
+			double dzy = -normal.xyz[1] / normal.xyz[2];
 
 			//除了三点共线的情况以外，只可能l水平或者第二段l水平。具体画图讨论。
 			if (l.xyz[0] == 0 )
 			{
 				//水平线
+				l = r;
+				r = (p[2] - p[1]).convert_to_vec();
+				endx = p[2].xyzw[0];
 			}
 
-			double dxl = -l.xyz[1] / l.xyz[0];
-			double dxr = -r.xyz[1] / r.xyz[0];
+			double dxl = l.xyz[0] / l.xyz[1];
+			double dxr = r.xyz[0] / r.xyz[1];
 
 			double xl = p[0].xyzw[0];
-			double xr = p[0].xyzw[1];
+			double xr = xl;
 			double zl = p[0].xyzw[2];
+			double zr = zl;
 			
 			//topminus1,顶点的下面一个整数坐标。
 			int topminus1 =  double_to_legal_int(p[0].xyzw[1],xpixelnum)-1;
@@ -1614,12 +1648,77 @@ struct pipeline
 				continue;
 			}
 			double ydelta = topminus1 - p[0].xyzw[1];
-
+			
+			//当前y的整数坐标
+			int yp = topminus1;
+			
 			while (true)
 			{
-				xl += ydelta * dxl;
-				xr += ydelta * dxr;
+				double xldelta = ydelta * dxl;
+				double xrdelta = ydelta * dxr;
+				xl += xldelta;
+				xr += xrdelta;
+				zl += dzx * xldelta + dzy * ydelta;
+				zr += dzx * xrdelta + dzy * ydelta;
+				
+				//也可以在此处用yp<p[2].xyzw[1]来作为结束条件
+				//此处我用endx来进入判断结束和换l向量的情况。
 
+				if ((xl - endx) * l.xyz[0] > 0)
+				{
+					//结束或者需要换l向量了
+					//结束
+					if (yp < p[2].xyzw[1])
+					{
+						break;
+					}
+					//换l向量
+					l = (p[2] - p[1]).convert_to_vec();
+					dxl = l.xyz[0] / l.xyz[1];
+					ydelta = yp - p[1].xyzw[1];
+					xldelta = ydelta * dxl;
+					
+					xl = p[1].xyzw[0] + xldelta;
+					zl = p[1].xyzw[2] + dzx * xldelta + dzy * ydelta;
+					endx = p[2].xyzw[0];
+				}
+
+				pair<double, double> lr[2];
+				if (xl < xr)
+				{
+					lr[0] = make_pair(xl, zl);
+					lr[1] = make_pair(xr, zr);
+				}
+				else
+				{
+					lr[0] = make_pair(xr, zr);
+					lr[1] = make_pair(xl, zl);
+				}
+				//left向上取整，right向下取整。
+				int roundxl = (int)ceil(lr[0].first);
+				int roundxr = (int)floor(lr[1].first);
+				//当前像素点的z值。
+				double zz = lr[0].second;
+				//每行的初始横向x增量
+				double deltax = roundxl - lr[0].first;
+				for (int i = roundxl; i <= roundxr; i++)
+				{
+					zz += deltax * dzx;
+					//当前像素的x坐标,y坐标,z值。
+					i, yp, zz;
+					vec2d points2d(i,yp);
+					if (zz > zpy.get_pixel_z(points2d))
+					{
+						//当前像素的值需要被更新。
+						framebuffer[i][yp] = 1;
+						zpy.update(points2d, zz);
+					}
+					deltax = 1;
+				}
+
+				ydelta = -1;
+				//列坐标减一
+				yp--;
 			}
 
 		}
@@ -1629,7 +1728,7 @@ struct pipeline
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
-		//box.print();
+		box.print();
 		//剪枝
 		if (myflist.size() == 0)
 		{
@@ -1809,7 +1908,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			if(mypipeline.framebuffer[i][j] == 1)
 				pMem[i*1024+j] = BGR(RGB(0, 0, 255));
 		}
-	// 使显示缓冲区生效（注：操作指向 IMAGE 的显示缓冲区不需要这条语句）
+	// 使显示缓冲区生效
 	FlushBatchDraw();
 
 	// 保存绘制的图像
