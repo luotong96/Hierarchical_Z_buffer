@@ -9,6 +9,8 @@
 #include <random>
 #include <numbers>
 #include <list>
+#include <chrono>
+
 using namespace std;
 //定义全局的向量，方便后续坐标变换的计算
 struct vec
@@ -450,7 +452,7 @@ struct triangle
 {
 	//三个端点坐标
 	indpair ends[3];
-	//int color
+	int color;
 
 	//从facetfromobj拷贝
 	triangle(const facetfromobj& b)
@@ -461,11 +463,12 @@ struct triangle
 				ends[i] = b.pointlist[i];
 		}
 	}
-	//拷贝构造函数
-	triangle(const triangle & b )
+	//默认拷贝构造函数
+	/*triangle(const triangle& b)
 	{
 		memcpy(ends,b.ends,sizeof(ends));
-	}
+
+	}*/
 };
 
 //
@@ -638,8 +641,10 @@ struct scene {
 			range[i] = 2 * pow(n, 1.0 / 3)*bbox.b[i][1];
 		}
 
+		unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
+
 		std::default_random_engine generator;
-		std::default_random_engine generator2;
+		//std::default_random_engine generator2;
 
 		//旋转角度theta的分布
 		std::uniform_real_distribution<double> thetapdf(0, 2 * std::numbers::pi);
@@ -657,8 +662,9 @@ struct scene {
 			double coord[3];
 			for (int j = 0; j < 3; j++)
 			{
-				coord[j] = coordpdf(generator2)*range[j];
+				coord[j] = coordpdf(generator)*range[j];
 			}
+
 			//先旋转，再平移。
 			hmat T = hmat::get_translation_hmat(vec(coord)) * R;
 
@@ -690,6 +696,7 @@ struct scene {
 					ntriangle.ends[k].vi += pvcnt;
 					ntriangle.ends[k].vni += pvncnt;
 				}
+				ntriangle.color = i + 1;
 				//新的三角形面片汇总到本场景中
 				flist.push_back(ntriangle);
 			}
@@ -1155,12 +1162,12 @@ struct pipeline
 
 	}
 
-	//取景变换，世界坐标变换到ouvn坐标,viewpoint->视点坐标，n->视点方向,up->向上的方向
+	//取景变换，世界坐标变换到ouvn坐标,viewpoint->视点坐标，n->视线方向,up->向上的方向
 	void view_transform(const vec& viewpoint, vec n, const vec& up, hmat& transform)
 	{
 		if (n == vec::get_zero_vector() || up == vec::get_zero_vector())
 		{
-			printf("视点方向和up方向不能为0\n");
+			printf("视线方向和up方向不能为0\n");
 			return;
 		}
 		n = n * (1.0 / n.norm2());
@@ -1190,8 +1197,9 @@ struct pipeline
 			T.A[2][j] = n.xyz[j];
 		T.A[3][3] = 1;
 
+		hvec c = T * hvec(viewpoint);
 		for (int i = 0; i < 3; i++)
-			T.A[i][3] = -viewpoint.xyz[i];
+			T.A[i][3] = -c.xyzw[i];
 
 		//与现有变换复合
 		transform = T * transform;
@@ -1377,8 +1385,14 @@ struct pipeline
 		yp /= 2;
 		hmat T;
 		//景物空间坐标直接与像素中心对齐，注意此处的坐标变换。
-		T.A[0][1] = -yp / ymax;
+		/*T.A[0][1] = -yp / ymax;
 		T.A[1][0] = xp / xmax;
+		T.A[0][3] = yp - 0.5;
+		T.A[1][3] = xp - 0.5;
+		T.A[2][2] = T.A[3][3] = 1;
+		*/
+		T.A[0][0] = -yp / xmax;
+		T.A[1][1] = -xp / ymax;
 		T.A[0][3] = yp - 0.5;
 		T.A[1][3] = xp - 0.5;
 		T.A[2][2] = T.A[3][3] = 1;
@@ -1436,155 +1450,10 @@ struct pipeline
 	{
 		return max(0, min(maxn - 1, (int)floor(a + 0.5)));
 	}
-	/*void subprocess(hvec p[3], zpyramid& zpy)
-	{
 
-		hvec l, r;
-
-		r = l = p[0];
-		hvec ldeltav = p[1] - p[0];
-		hvec rdeltav = p[2] - p[0];
-
-		const double eps = 1e-1;
-		if (fabs(p[1].xyzw[1] - p[0].xyzw[1]) < eps)
-		{
-			r = p[1];
-			ldeltav = p[2] - p[0];
-			rdeltav = p[2] - p[1];
-		}
-		//算出dy = -1时，dx,dz分别为多少
-		for (int i = 0; i < 3; i++)
-		{
-			if (i != 1)
-			{
-				ldeltav.xyzw[i] /= -ldeltav.xyzw[1];
-				rdeltav.xyzw[i] /= -rdeltav.xyzw[1];
-			}
-		}
-		rdeltav.xyzw[1] = ldeltav.xyzw[1] = -1;
-		rdeltav.xyzw[3] = ldeltav.xyzw[3] = 0;
-		//当前的y值赋为最上面的点的y值
-		double yy = p[0].xyzw[1];
-		//ymin为结束的y值
-		double ymin = p[2].xyzw[1];
-
-		while (1)
-		{
-			//算出每一行的向量变化量
-			hvec deltaz = r - l;
-			if (fabs(deltaz.xyzw[0]) <= 1e-8)
-			{
-				deltaz.xyzw[2] = DBL_MAX;
-			}
-			else
-			{
-				deltaz.xyzw[2] /= deltaz.xyzw[0];
-			}
-			deltaz.xyzw[0] = 1;
-			deltaz.xyzw[1] = 0;
-			deltaz.xyzw[3] = 0;
-			hvec mid = l;
-			while (1)
-			{
-				//当前mid在x,y平面的合法投影坐标
-				int xp = double_to_legal_int(mid.xyzw[0], this->ypixelnum);
-				int yp = double_to_legal_int(mid.xyzw[1], this->xpixelnum);
-				vec2d points2d = vec2d(xp, yp);
-				if (mid.xyzw[2] > zpy.get_pixel_z(points2d))
-				{
-					//待补充更新帧缓冲器
-					framebuffer[xp][yp] = 1;
-					zpy.update(points2d, mid.xyzw[2]);
-				}
-
-				mid = mid + deltaz;
-				if (double_to_legal_int(mid.xyzw[0], this->ypixelnum) >= double_to_legal_int(r.xyzw[0], this->ypixelnum))
-				{
-					break;
-				}
-			}
-			l = l + ldeltav;
-			r = r + rdeltav;
-			//若下边界超出，则停止。
-			if (l.xyzw[1] < ymin || r.xyzw[1] < ymin)
-			{
-				break;
-			}
-		}
-	}*/
 	//计算z_buffer跳过了多少面片
 	int cnta = 0;
 	int cntb = 0;
-	/*void scan_convert(const list<triangle>& mylist, zpyramid& zpy)
-	{
-		for (list<triangle>::const_iterator it = mylist.cbegin(); it != mylist.cend(); it++)
-		{
-			hvec p[3];
-			double zmax = -DBL_MAX;
-			for (int i = 0; i < 3; i++)
-			{
-				p[i] = this->v_in_window_list[it->ends[i].vi - 1];
-				zmax = fmax(zmax, p[i].xyzw[2]);
-			}
-			double z_enclose = zpy.min_enclosing_z(*it, v_in_window_list, zpy.root, ypixelnum, xpixelnum);
-			if (z_enclose >= zmax)
-			{
-				//当前三角面片被遮挡。
-				cnta++;
-				continue;
-			}
-			else
-			{
-				//判断是否真的可见。
-				if (!zpy.is_visible(*it,v_in_window_list,zpy.root,zmax,xmax,ymax))
-				{
-					cntb++;
-					continue;
-				}
-			//}
-
-			//y值大的往前放，y值相同，x小的往前放。
-			sort(p, p + 3, mycmp);
-
-			const double eps = 0.1;
-			//需要切成两部分来处理
-			if (fabs(p[0].xyzw[1] - p[1].xyzw[1]) >= eps && fabs(p[1].xyzw[1] - p[2].xyzw[1]) >= eps)
-			{
-				//p[0],p[2]中间切出一个新点
-				hvec delta = p[2] - p[0];
-				for (int i = 0; i < 3; i++)
-				{
-					if (i != 1)
-					{
-						delta.xyzw[i] = delta.xyzw[i] / delta.xyzw[1] * (p[1].xyzw[1] - p[0].xyzw[1]);
-					}
-				}
-				hvec npoint = delta + p[0];
-				npoint.xyzw[1] = p[1].xyzw[1];
-				npoint.xyzw[3] = 1;
-
-				//处理上半部分
-				hvec p1[3];
-				p1[0] = p[0];
-				p1[1] = npoint;
-				p1[2] = p[1];
-				sort(p1, p1 + 3, &pipeline::mycmp);
-				subprocess(p1, zpy);
-				//处理下半部分
-				hvec p2[3];
-				p2[0] = npoint;
-				p2[1] = p[1];
-				p2[2] = p[2];
-				sort(p2, p2 + 3, &pipeline::mycmp);
-				subprocess(p2, zpy);
-			}
-			else
-			{
-				subprocess(p, zpy);
-
-			}
-		}
-	}*/
 
 
 	void scan_convert(const list<triangle>& mylist, zpyramid& zpy)
@@ -1710,7 +1579,8 @@ struct pipeline
 					if (zz > zpy.get_pixel_z(points2d))
 					{
 						//当前像素的值需要被更新。
-						framebuffer[i][yp] = 1;
+						framebuffer[i][yp] = it->color;
+					//	printf("color=%d\n", it->color);
 						zpy.update(points2d, zz);
 					}
 					deltax = 1;
@@ -1728,10 +1598,16 @@ struct pipeline
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
-		box.print();
+		
 		//剪枝
 		if (myflist.size() == 0)
 		{
+			return;
+		}
+		if (myflist.size() < threshold)
+		{
+			//扫描转换myflist
+			scan_convert(myflist, zpy);
 			return;
 		}
 
@@ -1749,25 +1625,49 @@ struct pipeline
 		
 		//boxinwindow->当前8叉树节点对应的cube离视点最近的面c转换到屏幕坐标系所得到的box投影到2维xy平面上,注意此处较小坐标向下取整，较大坐标向上取整，保证变换后的投影不小于面c的投影。
 		box2d boxinwindow;
-		int xmin = max(0, (int)floor(fmin(lefttop.xyzw[0], rightdown.xyzw[0])));
-		int xmax = min(ypixelnum - 1,(int)ceil(fmax(lefttop.xyzw[0], rightdown.xyzw[0])));
-		int ymin = max(0,(int)floor(fmin(lefttop.xyzw[1], rightdown.xyzw[1])));
-		int ymax = min(xpixelnum - 1,(int)ceil(fmax(lefttop.xyzw[1], rightdown.xyzw[1])));
+		
+		double minx = min(lefttop.xyzw[0], rightdown.xyzw[0]);
+		double maxx = max(lefttop.xyzw[0], rightdown.xyzw[0]);
+		double miny = min(lefttop.xyzw[1], rightdown.xyzw[1]);
+		double maxy = max(lefttop.xyzw[1], rightdown.xyzw[1]);
+
+		int xmin = (int)floor(minx + 0.5);
+		if (xmin <= minx)
+			xmin += 1;
+		int xmax = (int)floor(maxx + 0.5);
+		if (xmax >= maxx)
+			xmax -= 1;
+
+		int ymin = (int)floor(miny + 0.5);
+		if (ymin <= miny)
+			ymin += 1;
+		int ymax = (int)floor(maxy + 0.5);
+		if (ymax >= maxy)
+			ymax -= 1;
+	/*	if (xmin < 0 || ymin < 0 || xmax >= ypixelnum || ymax >= xpixelnum)
+		{
+			printf("no!!!!!\n");
+			system("pause");
+		}*/
 
 		boxinwindow.ends[0] = vec2d(xmin, ymin);
 		boxinwindow.ends[1] = vec2d(xmax, ymax);
 
 		//若当前盒子完全不可见，则退出。
 		double z =  zpy.min_enclosing_z(boxinwindow, zpy.root);
-		if (z > lefttop.xyzw[2])
-			return;
-		
-		if (myflist.size() < threshold)
+		if (z > -DBL_MAX)
 		{
-			//扫描转换myflist
-			scan_convert(myflist,zpy);
+			printf("z = %f myz = %f\n", z, lefttop.xyzw[2]);
+			system("pause");
+		}
+		if (z > lefttop.xyzw[2])
+		{
+			cnta += myflist.size();
+			printf("###%d\n", cnta);
+			system("pause");
 			return;
 		}
+		
 
 		//构造8个子盒子
 		//3个维度的最小、中间、最大3个值。
@@ -1790,6 +1690,8 @@ struct pipeline
 				{
 					//boundingbox[i][j]
 					subbox[i][j][k] = boundingbox(points[0][i], points[0][i + 1], points[1][j], points[1][j + 1], points[2][k], points[2][k + 1]);
+					//subbox[i][j][k].print();
+					//system("pause");
 				}
 			}
 		}
@@ -1878,13 +1780,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	//soccer.print("");
 
 	soccerfield.generate_from_base(soccer,1000);
-	
-	vec oo(0, 0, 0);
-	vec nn(1, 1, 1);
-	vec uu(1, 1, 0);
+//	printf("color = %d\n", );
+	vec oo(20, 0, 0);
+	vec nn(1, 0, 0);
+	vec uu(0, 0, 1);
 	hmat I = hmat::get_unity();
 	mypipeline.view_transform(oo,nn,uu,I);
-	mypipeline.viewing_frustum(1.0 / 3 * std::numbers::pi, 1.0 / 3 * std::numbers::pi, 10, 100);
+	mypipeline.viewing_frustum(1.0 / 3 * std::numbers::pi, 1.0 / 3 * std::numbers::pi, 50, 1000);
 	mypipeline.projection(I);
 	mypipeline.apply_transform_from_scene(soccerfield,I);
 	printf("\ncnt = %d\n",sb);
@@ -1894,6 +1796,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	mypipeline.surface_visibility(I,1024,768);
 	//mypipeline.print_framebuffer();
 	printf("cnta = %d cntb = %d", mypipeline.cnta, mypipeline.cntb);
+	system("pause");
 
 	// 初始化绘图窗口
 	initgraph(1024, 768);
@@ -1905,8 +1808,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	for (int i = 0; i < 768; i++)
 		for (int j = 0; j < 1024; j++)
 		{
-			if(mypipeline.framebuffer[i][j] == 1)
-				pMem[i*1024+j] = BGR(RGB(0, 0, 255));
+			if (mypipeline.framebuffer[i][j] != 0)
+			{
+				pMem[i * 1024 + j] = BGR(RGB(mypipeline.framebuffer[i][j]/16*10, mypipeline.framebuffer[i][j]/4%16*10, mypipeline.framebuffer[i][j] %4*10));
+			}
 		}
 	// 使显示缓冲区生效
 	FlushBatchDraw();
