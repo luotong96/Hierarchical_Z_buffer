@@ -135,7 +135,7 @@ struct geometryfromobj
 	vector<vec> vnlist;
 	list<facetfromobj> flist;
 
-	void read_from_file(string filename = "..\\soccerball.obj")
+	void read_from_file(string filename = ".\\soccerball.obj")
 	{
 		//map<int,int>mp;
 		fstream fs;
@@ -236,8 +236,9 @@ struct geometryfromobj
 	//打印输出当前面数，点数
 	void print(string funcname)
 	{
+		printf("-------------------------------\n");
 		printf((funcname + "已完成\n").c_str());
-		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+		printf("当前顶点v数量%d 法向vn数量%d 面片f数量%d\n", vlist.size(), vnlist.size(), flist.size());
 		map<int, int>mp;
 		printf("总面片数量=%d\n", flist.size());
 		for (list<facetfromobj>::iterator it = flist.begin(); it != flist.end(); it++)
@@ -255,7 +256,6 @@ struct geometryfromobj
 		}
 	}
 };
-int sb = 0;
 
 //齐次坐标
 struct hvec
@@ -308,7 +308,7 @@ struct hvec
 	{
 		if (fabs(xyzw[3]) < eps)
 		{
-			printf("w为0，无法归一化\n");
+			//printf("w为0，无法归一化\n");
 			for (int i = 0; i < 3; i++)
 			{
 				xyzw[i] = DBL_MAX;
@@ -327,7 +327,6 @@ struct hvec
 	{
 		if (fabs(xyzw[3]) < eps)
 		{
-			sb++;
 			//printf("w为0，无法xy归一化\n");
 			for (int i = 0; i < 2; i++)
 			{
@@ -563,8 +562,9 @@ struct geometry
 	}
 	void print(string funcname)
 	{
+		printf("-------------------------------\n");
 		printf((funcname + "已完成\n").c_str());
-		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+		printf("当前顶点v数量%d 顶点法向vn数量%d 面片f数量%d\n", vlist.size(), vnlist.size(), flist.size());
 	}
 	//将模型居中于坐标原点
 	void centered()
@@ -623,8 +623,9 @@ struct scene {
 	
 	void print(string funcname)
 	{
+		printf("-------------------------------\n");
 		printf((funcname + " 已完成!\n").c_str());
-		printf("当前v数量%d vn数量%d f数量%d\n", vlist.size(), vnlist.size(), flist.size());
+		printf("当前顶点v数量%d 法向vn数量%d 面片f数量%d\n", vlist.size(), vnlist.size(), flist.size());
 	}
 
 	//场景造型，随机在世界坐标系中复制生成单个模型
@@ -1028,7 +1029,7 @@ struct zpyramid
 				}
 			}
 			//如果更新成功，则继续向上更新，否则退出。
-			if (nmin < par->z)
+			if (nmin > par->z)
 			{
 				par->z = nmin;
 				p = par;
@@ -1154,11 +1155,10 @@ struct pipeline
 	//显示帧缓冲器
 	int** framebuffer;
 
-	void print_transform(string funcname)
+	void print(string funcname)
 	{
-		printf(("已完成" + funcname).c_str());
-		//printf(" transform当前为：\n");
-		//transform.print();
+		printf("-------------------------------\n");
+		printf((funcname+"已完成\n").c_str());
 
 	}
 
@@ -1204,7 +1204,7 @@ struct pipeline
 		//与现有变换复合
 		transform = T * transform;
 
-		print_transform("viewtransform");
+		print("viewtransform");
 	}
 
 	//视域四棱台,仍然在ouvn坐标系中,u为up方向,theta为相应维度视线与水平线的最大夹角,theta<pi/2。
@@ -1227,6 +1227,7 @@ struct pipeline
 		this->front = front;
 		this->back = back;
 		this->d = d;
+		print("viewing_frustum");
 	}
 
 	//透视投影变换,d为投影平面，d>0
@@ -1245,7 +1246,7 @@ struct pipeline
 
 		this->d = d;
 
-		print_transform("projection");
+		print("projection");
 	}
 
 
@@ -1279,6 +1280,8 @@ struct pipeline
 
 		//深度拷贝triangle面片
 		flist.assign(s.flist.cbegin(), s.flist.cend());
+
+		print("apply_transform_from_scene");
 	}
 
 	//在本场景现有的坐标上应用T变换，非第一次应用变换。
@@ -1353,6 +1356,7 @@ struct pipeline
 
 		vlist.assign(nvlist.begin(), nvlist.end());
 		vnlist.assign(nvnlist.begin(), nvnlist.end());
+		print("clipping");
 	}
 
 	//ouvn变换到oxyz；oxyz的坐标原点放到投影平面上，与视点距离d。
@@ -1367,7 +1371,7 @@ struct pipeline
 		ymax = umax;
 		//小心精度误差。
 		zmax = fmax(d - front, back - d);
-		print_transform("ouvn_to_oxyz");
+		print("ouvn_to_oxyz");
 	}
 
 	//视窗变换->变换到像素为单位的屏幕坐标系,屏幕坐标系原点在左上角。x向下为正，y向右为正。
@@ -1402,7 +1406,7 @@ struct pipeline
 	}
 
 	//消隐
-	void surface_visibility(hmat& transform, int xpixelnum, int ypixelnum)
+	map< vec2d, node* >* surface_visibility(hmat& transform, int xpixelnum, int ypixelnum)
 	{
 		this->xpixelnum = xpixelnum; this->ypixelnum = ypixelnum;
 
@@ -1428,13 +1432,17 @@ struct pipeline
 		}
 
 		//建立zpyramid，注意屏幕坐标系与分辨率参数的对应关系。
-		zpyramid zpy(vec2d(0, 0), vec2d(ypixelnum - 1, xpixelnum - 1));
+		zpyramid zpy (vec2d(0, 0), vec2d(ypixelnum - 1, xpixelnum - 1));
 		zpy.make_up_heap(zpy.root);
+
 		boundingbox bb(-xmax, xmax, -ymax, ymax, -zmax, zmax);
 
 		//八叉树过程中会不断将三角面片list 8拆分，故使用原有的面片的备份进行运算。
 		list<triangle> mylist(flist.begin(), flist.end());
 		octree(bb, mylist, stop_triangle_num, zpy);
+		map< vec2d, node* >* msp = new map< vec2d, node* >(zpy.mp);
+		print("surface_visibility");
+		return msp;
 	}
 
 
@@ -1473,6 +1481,20 @@ struct pipeline
 				cntb++;
 				continue;
 			}
+
+			//只画顶端的顶点
+			for (int i = 0; i < 1; i++)
+			{
+				int x = double_to_legal_int(p[i].xyzw[0], ypixelnum);
+				int y = double_to_legal_int(p[i].xyzw[1], xpixelnum);
+				if (p[i].xyzw[2] > zpy.get_pixel_z(vec2d(x,y)))
+				{
+					//当前像素的值需要被更新。
+					framebuffer[x][y] = it->color;
+					zpy.update(vec2d(x, y), p[i].xyzw[2]);
+				}
+			}
+
 
 			//y值大的往前放，y值相同，x小的往前放。 
 			sort(p, p + 3, mycmp);
@@ -1563,9 +1585,16 @@ struct pipeline
 					lr[0] = make_pair(xr, zr);
 					lr[1] = make_pair(xl, zl);
 				}
+				//int roundxl = max(0, min(ypixelnum - 1, (int)ceil(lr[0].first - 1)));
+				//int roundxr = max(0, min(ypixelnum - 1, (int)floor(lr[1].first + 1)));
+				
+				//int roundxl = double_to_legal_int(lr[0].first,ypixelnum);
+				//int roundxr = double_to_legal_int(lr[1].first, ypixelnum);
+
 				//left向上取整，right向下取整。
 				int roundxl = (int)ceil(lr[0].first);
 				int roundxr = (int)floor(lr[1].first);
+
 				//当前像素点的z值。
 				double zz = lr[0].second;
 				//每行的初始横向x增量
@@ -1580,7 +1609,6 @@ struct pipeline
 					{
 						//当前像素的值需要被更新。
 						framebuffer[i][yp] = it->color;
-					//	printf("color=%d\n", it->color);
 						zpy.update(points2d, zz);
 					}
 					deltax = 1;
@@ -1598,7 +1626,10 @@ struct pipeline
 	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
 	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
-		
+		//不要octree，直接扫描转换。
+		//scan_convert(myflist, zpy);
+		//return;
+
 		//剪枝
 		if (myflist.size() == 0)
 		{
@@ -1630,7 +1661,7 @@ struct pipeline
 		double maxx = max(lefttop.xyzw[0], rightdown.xyzw[0]);
 		double miny = min(lefttop.xyzw[1], rightdown.xyzw[1]);
 		double maxy = max(lefttop.xyzw[1], rightdown.xyzw[1]);
-
+		
 		int xmin = (int)floor(minx + 0.5);
 		if (xmin <= minx)
 			xmin += 1;
@@ -1644,6 +1675,12 @@ struct pipeline
 		int ymax = (int)floor(maxy + 0.5);
 		if (ymax >= maxy)
 			ymax -= 1;
+		/*
+		int xmin = double_to_legal_int(floor(minx), ypixelnum);
+		int ymin = double_to_legal_int(floor(miny), xpixelnum);
+		int xmax = double_to_legal_int(ceil(maxx), ypixelnum);
+		int ymax = double_to_legal_int(ceil(maxy), xpixelnum);
+		*/
 	/*	if (xmin < 0 || ymin < 0 || xmax >= ypixelnum || ymax >= xpixelnum)
 		{
 			printf("no!!!!!\n");
@@ -1655,16 +1692,12 @@ struct pipeline
 
 		//若当前盒子完全不可见，则退出。
 		double z =  zpy.min_enclosing_z(boxinwindow, zpy.root);
-		if (z > -DBL_MAX)
-		{
-			printf("z = %f myz = %f\n", z, lefttop.xyzw[2]);
-			system("pause");
-		}
+
 		if (z > lefttop.xyzw[2])
 		{
 			cnta += myflist.size();
-			printf("###%d\n", cnta);
-			system("pause");
+			//printf("###%d\n", cnta);
+			//system("pause");
 			return;
 		}
 		
@@ -1762,41 +1795,66 @@ scene soccerfield;
 pipeline mypipeline;
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
+	//控制台
 	FILE* fp;
-
 	AllocConsole();
 	freopen_s(&fp, "CONIN$", "r", stdin);
 	freopen_s(&fp, "CONOUT$", "w", stdout);
 	freopen_s(&fp, "CONOUT$", "w", stderr);
-	/*initgraph(640, 480);	// 创建绘图窗口，分辨率 640x480
-	circle(320, 240, 100);	// 画圆，圆心 (320, 240)，半径 100
-	Sleep(5000);			// 延时 5000 毫秒
-	closegraph();			// 关闭图形窗口
-	*/
+
+	//用于计时
+	using namespace chrono;
+	auto start = system_clock::now();
+
+	//读取基准模型
 	soccerobj.read_from_file();
+	//多边形面片全部转换为三角面片
 	soccerobj.triangle_mesh();
 	soccer.assign(soccerobj);
-	soccer.centered();
-	//soccer.print("");
 
+	//模型居中到坐标原点
+	soccer.centered();
+
+	//模型变换：在1000个随机位置生成基准模型的复制，构建场景。
 	soccerfield.generate_from_base(soccer,1000);
-//	printf("color = %d\n", );
-	vec oo(20, 0, 0);
+	
+	auto check1 = system_clock::now();
+	printf("模型变换用时%f秒\n", double(duration_cast<microseconds>(check1 - start).count() * microseconds::period::num / microseconds::period::den));
+
+
+	//视点ouvn坐标系的oo->o,nn->n,up->up三个向量
+	vec oo(0, 0, 0);
 	vec nn(1, 0, 0);
-	vec uu(0, 0, 1);
+	vec up(0, 0, 1);
+	//取景变换
 	hmat I = hmat::get_unity();
-	mypipeline.view_transform(oo,nn,uu,I);
-	mypipeline.viewing_frustum(1.0 / 3 * std::numbers::pi, 1.0 / 3 * std::numbers::pi, 50, 1000);
+	mypipeline.view_transform(oo,nn,up,I);
+	//视域四棱台参数设置
+	mypipeline.viewing_frustum(1.0 / 3 * std::numbers::pi, 1.0 / 3 * std::numbers::pi, 1, 1000);
+	//投影变换
 	mypipeline.projection(I);
+	//将前面的变换真正应用到场景的点上,得到ouvn下的坐标。
 	mypipeline.apply_transform_from_scene(soccerfield,I);
-	printf("\ncnt = %d\n",sb);
+	//根据视域四棱台做裁剪
 	mypipeline.clipping();
+	//将ouvn下的点转换到oxyz坐标中，方便做消隐。
 	I = hmat::get_unity();
 	mypipeline.ouvn_to_oxyz(I);
-	mypipeline.surface_visibility(I,1024,768);
-	//mypipeline.print_framebuffer();
-	printf("cnta = %d cntb = %d", mypipeline.cnta, mypipeline.cntb);
+
+	printf("目前场景中待扫描转换的三角面片总数%d个\n", mypipeline.flist.size());
+	
+	//在oxyz坐标系中做消隐,其中包含场景八叉树的调用，层次z_buffer的调用，视窗变换的调用。输出为帧缓冲器中的消隐结果。
+	map< vec2d, node* >* msp = mypipeline.surface_visibility(I,1024,768);
+	
+	printf("\n场景八叉树跳过的三角面片数量 = %d 层次z_buffer跳过的三角面片数量 = %d\n", mypipeline.cnta, mypipeline.cntb);
+	
+	auto check2 = system_clock::now();
+	printf("取景变换、投影变换、裁剪、消隐总用时%f秒\n", double(duration_cast<microseconds>(check2 - start).count() * microseconds::period::num / microseconds::period::den));
+
+
 	system("pause");
+
+
 
 	// 初始化绘图窗口
 	initgraph(1024, 768);
@@ -1806,13 +1864,34 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	
 	// 直接对显示缓冲区赋值
 	for (int i = 0; i < 768; i++)
+	{
 		for (int j = 0; j < 1024; j++)
 		{
 			if (mypipeline.framebuffer[i][j] != 0)
 			{
 				pMem[i * 1024 + j] = BGR(RGB(mypipeline.framebuffer[i][j]/16*10, mypipeline.framebuffer[i][j]/4%16*10, mypipeline.framebuffer[i][j] %4*10));
+				/*if (mypipeline.framebuffer[i][j] == -1)
+				{
+					//如果是顶点，则换红色单独显示。
+					pMem[i * 1024 + j] = BGR(RGB(255, 0, 0));
+				}
+				else
+				{
+					pMem[i * 1024 + j] = BGR(RGB(255, 255, 255));
+				}*/
 			}
 		}
+	}
+
+	/*
+	将每个像素的z_buffer值拿出来显示
+	for(int i = 0; i < 768; i++)
+		for (int j = 0; j < 1024; j++)
+		{
+			int c = int(msp->at(vec2d(i, j))->z+mypipeline.zmax)%200+50;
+			pMem[i * 1024 + j] = BGR(RGB(c,c,c));
+		}
+	*/
 	// 使显示缓冲区生效
 	FlushBatchDraw();
 
