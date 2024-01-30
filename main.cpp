@@ -1941,8 +1941,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	FlushBatchDraw();
 
 	// ±£´æ»æÖÆµÄÍ¼Ïñ
-	saveimage(_T("C:\\Users\\luotong\\Desktop\\test.bmp"));
-
+	//saveimage(_T("C:\\Users\\luotong\\Desktop\\test.bmp"));
+	saveimage(_T(".\\test.bmp"));
 	system("pause");
 	closegraph();
 	return 0;
