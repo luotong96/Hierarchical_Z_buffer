@@ -1439,7 +1439,7 @@ struct pipeline
 
 		//八叉树过程中会不断将三角面片list 8拆分，故使用原有的面片的备份进行运算。
 		list<triangle> mylist(flist.begin(), flist.end());
-		octree(bb, mylist, stop_triangle_num, zpy);
+		octree(transform,bb, mylist, stop_triangle_num, zpy);
 		map< vec2d, node* >* msp = new map< vec2d, node* >(zpy.mp);
 		print("surface_visibility");
 		return msp;
@@ -1623,8 +1623,8 @@ struct pipeline
 	}
 
 	//场景8叉树 + 层次z_buffer，开始！递归向下，一边建立8叉树，一边消隐。
-	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。
-	void octree(const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
+	//在oxyz空间做8叉树,当box内三角面片数量少于threshold时，停止向下划分空间。transform是为了ouvn->oxyz
+	void octree(hmat &transform, const boundingbox &box,list<triangle> &myflist, int threshold, zpyramid &zpy)
 	{
 		//不要octree，直接扫描转换。
 		//scan_convert(myflist, zpy);
@@ -1648,7 +1648,7 @@ struct pipeline
 		hvec rightdown(box.b[0][1],box.b[1][0],box.b[2][1]);
 
 
-		hmat T = hmat::get_unity();
+		hmat T = transform;
 		window_transform(xpixelnum, ypixelnum, T);
 
 		lefttop = T * lefttop;
@@ -1769,7 +1769,7 @@ struct pipeline
 			{
 				for (int j = 0; j < 2; j++)
 				{
-					octree(subbox[i][j][k], sublist[i][j][k], threshold, zpy);
+					octree(transform,subbox[i][j][k], sublist[i][j][k], threshold, zpy);
 				}
 			}
 		}
@@ -1855,7 +1855,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	//模型居中到坐标原点
 	soccer.centered();
 
-	//模型变换：在1000个随机位置生成基准模型的复制，构建场景。
+	//模型变换：在1000个随机位置复制基准模型，构建场景。
 	soccerfield.generate_from_base(soccer,1000);
 	
 	auto check1 = system_clock::now();
