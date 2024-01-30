@@ -1788,6 +1788,46 @@ struct pipeline
 	}
 };
 
+vec get_a_coord(string name)
+{
+	while (1)
+	{
+		printf( ("请输入" + name).c_str() );
+		double x[3];
+		scanf_s("%lf%lf%lf", x, x + 1, x + 2);
+		if (x[0] > 100 || x[0] < -100 || x[1] > 100 || x[1] < -100 || x[2] > 100 || x[2] < -100)
+		{
+			printf("坐标不合法\n");
+			continue;
+		}
+		else
+		{
+			return vec(x);
+		}
+	}
+}
+void userinterface(vec &o,vec &n, vec&up)
+{
+	printf("-----------------------------\n");
+	printf("是否需要更改默认视点坐标系？1-需要，0-不需要\n");
+	int c;
+	while (1)
+	{
+		scanf_s("%d", &c);
+		if (c == 0 || c == 1)
+		{
+			if (c == 1)
+			{
+				o = get_a_coord("原点坐标（示例：0 0 0）\n");
+				n = get_a_coord("视点方向（示例：1 0 0）\n");
+				up = get_a_coord("照相机up方向（示例：0 0 1）\n");
+			}
+			break;
+		}
+		printf("请重新输入\n");
+	}
+}
+
 geometryfromobj soccerobj;
 geometry soccer;
 
@@ -1826,6 +1866,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	vec oo(0, 0, 0);
 	vec nn(1, 0, 0);
 	vec up(0, 0, 1);
+	
+	userinterface(oo, nn, up);
+
+
+
 	//取景变换
 	hmat I = hmat::get_unity();
 	mypipeline.view_transform(oo,nn,up,I);
