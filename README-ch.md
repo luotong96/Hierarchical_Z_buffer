@@ -1,20 +1,14 @@
-### Hierarchical Z-Buffer with Object Space Octree
+层次zbuffer算法实现总说明及实验报告
 
----
+一、总体说明
 
-For CG course 2023
+本实验采用c++（ISOC++20标准）作为编程语言，除c++STL标准库外，仅使用easyx将帧缓存数据输出到屏幕上。包括读入文件、向量计算在内的所有基础操作均由本人独立完成代码实现，保留著作权。编码环境：visual studio2019，版本管理：git，代码托管：https://github.com/luotong96/Hierarchical_Z_Buffer
 
-The project duplicates one geometry of soccer 1000 times in the space to form a scene teeming with colorful balls. Then a series of transform is applied to the scene. Next, the hierachical z-buffer(pyramid) and object space octree is implemented to accelerating scan convert process. Those operations are implemented relying on C++ STL only.	 [Rendering Result](#result)
-
-#### 一、总体说明
-
-本实验采用c++（ISOC++20标准）作为编程语言，除c++STL标准库外，仅使用`easyx`将帧缓存数据输出到屏幕上。包括读入文件、向量计算在内的所有基础操作均由本人独立完成代码实现，保留著作权。编码环境：visual studio2019，版本管理：git，代码托管：https://github.com/luotong96/Hierarchical_Z_Buffer
-
-#### 二、数据结构说明
+二、数据结构说明
 
 本实验数据结构繁多，主要采用了结构体，堆，数组等数据结构。数据传递大量使用引用类型。具体参见代码及其注释。
 
-#### 三、实验流程
+三、实验流程
 
 a)   将soccerball.obj文件中的数据读入程序，得到1760个顶点和1992个多边形面片。
 
@@ -84,7 +78,7 @@ d)   三角形面片颜色取决于构建soccerfield时其所属模型的编号�
 
 Greene N, Kass M, Miller G. Hierarchical Z-buffer visibility[C]//Proceedings of the 20th annual conference on Computer graphics and interactive techniques. 1993: 231-238.
 
-#### 四、实验结果
+四、实验结果
 
 使用动态链接版本
 
@@ -94,7 +88,7 @@ Greene N, Kass M, Miller G. Hierarchical Z-buffer visibility[C]//Proceedings of 
 
 取景变换、投影变换、裁剪、消隐总用时49秒
 
-![image-20240803154543924](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/1.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image002.png)
 
 2、 不要场景8叉只要层次zbuffer
 
@@ -102,7 +96,7 @@ Greene N, Kass M, Miller G. Hierarchical Z-buffer visibility[C]//Proceedings of 
 
 取景变换、投影变换、裁剪、消隐总用时42秒
 
-![image-20240803154745088](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/2.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image004.png)
 
 3、 只要8叉序不要判断已被遮挡
 
@@ -110,35 +104,35 @@ Greene N, Kass M, Miller G. Hierarchical Z-buffer visibility[C]//Proceedings of 
 
 取景变换、投影变换、裁剪、消隐总用时48秒
 
-![image-20240803154819476](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/3.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image006.png)
 
 4、 绘制结果
 
-<span id='result'>![image-20240803154855627](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/4.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image008.jpg)
 
-#### 五、实验分析
+五、实验分析
 
 由实验结果可知，层次z_buffer能够快速有效拒绝被遮挡的三角面片。但是本次实验的场景8叉树效果不佳。对比上面三项不同数据可以发现，使用场景8叉的计算时间花费已经超过他所带来的收益。仅使用层次z_buffer，虽然最终渲染的面片数量更多，但是总时间花费更小。可能的原因是本次实现的扫描转换不够精准，导致图像上总是有大量的散点被判断为镂空。所以一个8叉节点总是无法有效拒绝掉大量被遮挡的三角面片。因为该8叉节点的最小z值总是离视点无穷远，这是这些未被填充的镂空散点造成的。仅采用场景8叉序对场景进行扫描转换，可以拒绝约5万个面片，但时间花费仍然较大，高于收益。
 
 ​    仔细检查扫描转换的代码后，暂未发现明显的错误。这些镂空散点可能源于浮点运算误差。尝试在计算中加入eps偏移量，发现能够减少部分镂空点，但不能完解决。也可能是扫描转换代码本身不够完备，或者我未捕捉到基准模型本身的三角片特性，这还需要进一步的调试和优化。故本次实验的完整模式与简单模式的加速比<1。这一部分还望老师指点。
 
-#### 六、链接说明
+六、链接说明
 
 使用静态链接的程序运行速度极快，4秒即可完成绘制。
 
-![image-20240803154924925](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/5.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image010.png)
 
-#### 七、用户界面及使用说明：
+七、用户界面及使用说明：
 
 源代码依赖于easyx库，可从EasyX_2023大暑版.exe安装。
 
 运行时project.exe需和soccerball.obj放在同一个目录下，运行完毕后会在同一目录下生成绘制结果test.bmp。
 
-![image-20240803154947191](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/6.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image012.png)
 
 默认视点坐标系为：o(0, 0, 0)，n(1, 0, 0)，up(0, 0, 1)
 
-![image-20240803155016344](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/7.png)
+![img](file:///C:/Users/luotong/AppData/Local/Temp/msohtmlclip1/01/clip_image014.png)
 
  
 
