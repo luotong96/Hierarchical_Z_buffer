@@ -112,9 +112,9 @@ Greene N, Kass M, Miller G. Hierarchical Z-buffer visibility[C]//Proceedings of 
 
 ![image-20240803154819476](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/3.png)
 
-4、 绘制结果
+4、 绘制结果<span id='result'>
 
-<span id='result'>![image-20240803154855627](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/4.png)
+![image-20240803154855627](https://github.com/luotong96/Hierarchical_Z_Buffer/blob/main/images/4.png)
 
 #### 五、实验分析
 
